@@ -7,3 +7,7 @@ lightgbm
 xgboost
 mlflow
 logging
+DVC
+docker
+pyyaml
+
