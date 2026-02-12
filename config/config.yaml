@@ -1,0 +1,87 @@
+# APU Predictive Maintenance
+# Configuration File
+project:
+  name: APU_Predictive_Maintenance
+  random_state: 42
+
+
+# Data Configuration
+data:
+  raw_data_path: Artifacts/training_datasets/train_FD002.csv
+  processed_data_path: Artifacts/Fault_injected_data/Fault_injection_dataset.csv
+  test_size: 0.2
+  shuffle: false   # IMPORTANT: Time-series data should not be shuffled
+
+
+# Feature Configuration
+features:
+  id_columns:
+    - engine_id
+    - cycle
+
+  operational_settings:
+    - op_setting_1
+    - op_setting_2
+    - op_setting_3
+
+  sensors:
+    - sensor_1
+    - sensor_2
+    - sensor_3
+    - sensor_4
+    - sensor_5
+    - sensor_6
+    - sensor_7
+    - sensor_8
+    - sensor_9
+    - sensor_10
+    - sensor_11
+    - sensor_12
+    - sensor_13
+    - sensor_14
+    - sensor_15
+    - sensor_16
+    - sensor_17
+    - sensor_18
+    - sensor_19
+    - sensor_20
+    - sensor_21
+
+  target:
+    binary: fault_label
+    multiclass: fault_type
+
+
+# Model Configuration
+name: IsolationForest
+n_estimators: 100
+contamination: auto
+random_state: 42
+
+
+# Fault Types Metadata
+
+faults:
+  0:
+    name: healthy
+    affected_sensors: none
+
+  1:
+    name: gradual_drift
+    affected_sensors: sensor_2|sensor_7
+
+  2:
+    name: bias_shift
+    affected_sensors: sensor_4|sensor_8
+
+  3:
+    name: noise_increase
+    affected_sensors: sensor_3
+
+  4:
+    name: spike
+    affected_sensors: sensor_9
+
+  5:
+    name: coupled_fault
+    affected_sensors: sensor_11|sensor_12
