@@ -3,4 +3,4 @@ __pycache__/
 .APU_venv
 .ipynb_checkpoints/
 .dvc/cache
-*.dvc
+logs/

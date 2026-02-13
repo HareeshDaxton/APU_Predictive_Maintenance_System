@@ -8,7 +8,9 @@ project:
 # Data Configuration
 data:
   raw_data_path: Artifacts/training_datasets/train_FD002.csv
-  processed_data_path: Artifacts/Fault_injected_data/Fault_injection_dataset.csv
+  original_data_path: Artifacts/Fault_injected_data/Fault_injection_dataset.csv
+  train_data_path: Artifacts/Final_datasets/Train_datasets/train_dataset.csv
+  test_data_path: Artifacts/Final_datasets/Test_datasets/test_dataset.csv
   test_size: 0.2
   shuffle: false   # IMPORTANT: Time-series data should not be shuffled
 
