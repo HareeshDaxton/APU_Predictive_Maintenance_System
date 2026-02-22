@@ -10,4 +10,5 @@ logging
 DVC
 docker
 pyyaml
-
+jpblib
+yaml
