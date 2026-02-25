@@ -1,0 +1,345 @@
+
+First Experiment :
+
+Model performance in the ipynb experiment:
+
+Training LinearRegression...
+model selection for training dtaset for -> LinearRegression
+mean square error : 585.5584
+mean absoulate error : 16.0361
+r2 score : 0.8750
+root mean square error : 24.1983
+-------------------------------------------------------------
+model selection for testg dtaset for -> LinearRegression
+mean square error : 785.4313
+mean absoulate error : 19.1700
+r2 score : 0.8483
+root mean square error : 28.0255
+
+Training ridge...
+model selection for training dtaset for -> ridge
+mean square error : 585.5828
+mean absoulate error : 16.0380
+r2 score : 0.8750
+root mean square error : 24.1988
+-------------------------------------------------------------
+model selection for testg dtaset for -> ridge
+mean square error : 785.3854
+mean absoulate error : 19.1684
+r2 score : 0.8483
+root mean square error : 28.0247
+
+Training Lasso...
+model selection for training dtaset for -> Lasso
+mean square error : 613.0325
+mean absoulate error : 15.8951
+r2 score : 0.8691
+root mean square error : 24.7595
+-------------------------------------------------------------
+model selection for testg dtaset for -> Lasso
+mean square error : 827.1327
+mean absoulate error : 19.1189
+r2 score : 0.8402
+root mean square error : 28.7599
+
+Training KNN...
+model selection for training dtaset for -> KNN
+mean square error : 779.6365
+mean absoulate error : 20.3434
+r2 score : 0.8336
+root mean square error : 27.9220
+-------------------------------------------------------------
+model selection for testg dtaset for -> KNN
+mean square error : 1828.4967
+mean absoulate error : 32.3314
+r2 score : 0.6467
+root mean square error : 42.7609
+
+Training DecisionTree...
+model selection for training dtaset for -> DecisionTree
+mean square error : 0.0000
+mean absoulate error : 0.0000
+r2 score : 1.0000
+root mean square error : 0.0000
+-------------------------------------------------------------
+model selection for testg dtaset for -> DecisionTree
+mean square error : 17.5827
+mean absoulate error : 1.7189
+r2 score : 0.9966
+root mean square error : 4.1932
+
+Training AdaBoostRegressor...
+model selection for training dtaset for -> AdaBoostRegressor
+mean square error : 736.0728
+mean absoulate error : 21.0412
+r2 score : 0.8429
+root mean square error : 27.1307
+-------------------------------------------------------------
+model selection for testg dtaset for -> AdaBoostRegressor
+mean square error : 858.6783
+mean absoulate error : 22.2261
+r2 score : 0.8341
+root mean square error : 29.3032
+
+Training RandomForestRegressor...
+model selection for training dtaset for -> RandomForestRegressor
+mean square error : 0.0067
+mean absoulate error : 0.0225
+r2 score : 1.0000
+root mean square error : 0.0816
+-------------------------------------------------------------
+model selection for testg dtaset for -> RandomForestRegressor
+mean square error : 3.8023
+mean absoulate error : 0.7536
+r2 score : 0.9993
+root mean square error : 1.9499
+
+Training GradientBoostingRegressor...
+model selection for training dtaset for -> GradientBoostingRegressor
+mean square error : 104.0337
+mean absoulate error : 5.6511
+r2 score : 0.9778
+root mean square error : 10.1997
+-------------------------------------------------------------
+model selection for testg dtaset for -> GradientBoostingRegressor
+mean square error : 150.7876
+mean absoulate error : 7.0086
+r2 score : 0.9709
+root mean square error : 12.2796
+
+Training LGBMRegressor...
+[LightGBM] [Info] Auto-choosing col-wise multi-threading, the overhead of testing was 0.092982 seconds.
+You can set `force_col_wise=true` to remove the overhead.
+[LightGBM] [Info] Total Bins 15457
+[LightGBM] [Info] Number of data points in the train set: 257334, number of used features: 69
+[LightGBM] [Info] Start training from score 107.496677
+model selection for training dtaset for -> LGBMRegressor
+mean square error : 10.2089
+mean absoulate error : 1.7138
+r2 score : 0.9978
+root mean square error : 3.1951
+-------------------------------------------------------------
+model selection for testg dtaset for -> LGBMRegressor
+mean square error : 27.2135
+mean absoulate error : 2.2402
+r2 score : 0.9947
+root mean square error : 5.2167
+
+Training XGBRegressor...
+model selection for training dtaset for -> XGBRegressor
+mean square error : 5.6867
+mean absoulate error : 1.5773
+r2 score : 0.9988
+root mean square error : 2.3847
+-------------------------------------------------------------
+model selection for testg dtaset for -> XGBRegressor
+mean square error : 26.3153
+mean absoulate error : 2.3159
+r2 score : 0.9949
+root mean square error : 5.1298
+
+
+
+
+-------fine-tuning-------- LGBM
+
+[LightGBM] [Info] Auto-choosing col-wise multi-threading, the overhead of testing was 0.065543 seconds.
+You can set `force_col_wise=true` to remove the overhead.
+[LightGBM] [Info] Total Bins 15457
+[LightGBM] [Info] Number of data points in the train set: 257334, number of used features: 69
+[LightGBM] [Info] Start training from score 107.496677
+mean square error : 22.642707236507842
+mean absoulate error : 1.7215
+r2 score : 0.9956
+root mean square error : 4.7584
+
+--------------------------------------------------------Phase 1 of training is over-------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+--------------------------------------------------------Phase 2 of training --------------------------------------------------------------------------
+Training LinearRegression...
+2026/02/25 12:09:56 WARNING mlflow.models.model: `artifact_path` is deprecated. Please use `name` instead.
+-------------------------------------------------------------
+model selection for training dtaset for -> LinearRegression
+mean square error : 585.5584
+mean absoulate error : 16.0361
+r2 score : 0.8750
+root mean square error : 24.1983
+-------------------------------------------------------------
+model selection for testg dtaset for -> LinearRegression
+mean square error : 785.4313
+mean absoulate error : 19.1700
+r2 score : 0.8483
+root mean square error : 28.0255
+
+Training ridge...
+2026/02/25 12:10:14 WARNING mlflow.models.model: `artifact_path` is deprecated. Please use `name` instead.
+-------------------------------------------------------------
+model selection for training dtaset for -> ridge
+mean square error : 585.5828
+mean absoulate error : 16.0380
+r2 score : 0.8750
+root mean square error : 24.1988
+-------------------------------------------------------------
+model selection for testg dtaset for -> ridge
+mean square error : 785.3854
+mean absoulate error : 19.1684
+r2 score : 0.8483
+root mean square error : 28.0247
+
+Training Lasso...
+2026/02/25 12:10:24 WARNING mlflow.models.model: `artifact_path` is deprecated. Please use `name` instead.
+-------------------------------------------------------------
+model selection for training dtaset for -> Lasso
+mean square error : 613.0325
+mean absoulate error : 15.8951
+r2 score : 0.8691
+root mean square error : 24.7595
+-------------------------------------------------------------
+model selection for testg dtaset for -> Lasso
+mean square error : 827.1327
+mean absoulate error : 19.1189
+r2 score : 0.8402
+root mean square error : 28.7599
+
+Training KNN...
+2026/02/25 12:13:45 WARNING mlflow.models.model: `artifact_path` is deprecated. Please use `name` instead.
+-------------------------------------------------------------
+model selection for training dtaset for -> KNN
+mean square error : 779.6365
+mean absoulate error : 20.3434
+r2 score : 0.8336
+root mean square error : 27.9220
+-------------------------------------------------------------
+model selection for testg dtaset for -> KNN
+mean square error : 1828.4967
+mean absoulate error : 32.3314
+r2 score : 0.6467
+root mean square error : 42.7609
+
+Training DecisionTree...
+2026/02/25 12:14:28 WARNING mlflow.models.model: `artifact_path` is deprecated. Please use `name` instead.
+-------------------------------------------------------------
+model selection for training dtaset for -> DecisionTree
+mean square error : 0.0000
+mean absoulate error : 0.0000
+r2 score : 1.0000
+root mean square error : 0.0000
+-------------------------------------------------------------
+model selection for testg dtaset for -> DecisionTree
+mean square error : 17.8300
+mean absoulate error : 1.7047
+r2 score : 0.9966
+root mean square error : 4.2226
+
+Training AdaBoostRegressor...
+2026/02/25 12:19:23 WARNING mlflow.models.model: `artifact_path` is deprecated. Please use `name` instead.
+-------------------------------------------------------------
+model selection for training dtaset for -> AdaBoostRegressor
+mean square error : 752.8825
+mean absoulate error : 21.4830
+r2 score : 0.8393
+root mean square error : 27.4387
+-------------------------------------------------------------
+model selection for testg dtaset for -> AdaBoostRegressor
+mean square error : 868.5470
+mean absoulate error : 22.6458
+r2 score : 0.8322
+root mean square error : 29.4711
+
+Training RandomForestRegressor...
+2026/02/25 12:45:31 WARNING mlflow.models.model: `artifact_path` is deprecated. Please use `name` instead.
+-------------------------------------------------------------
+model selection for training dtaset for -> RandomForestRegressor
+mean square error : 0.0073
+mean absoulate error : 0.0228
+r2 score : 1.0000
+root mean square error : 0.0853
+-------------------------------------------------------------
+model selection for testg dtaset for -> RandomForestRegressor
+mean square error : 3.7844
+mean absoulate error : 0.7528
+r2 score : 0.9993
+root mean square error : 1.9454
+
+Training GradientBoostingRegressor...
+2026/02/25 12:53:31 WARNING mlflow.models.model: `artifact_path` is deprecated. Please use `name` instead.
+-------------------------------------------------------------
+model selection for training dtaset for -> GradientBoostingRegressor
+mean square error : 104.0337
+mean absoulate error : 5.6511
+r2 score : 0.9778
+root mean square error : 10.1997
+-------------------------------------------------------------
+model selection for testg dtaset for -> GradientBoostingRegressor
+mean square error : 150.7988
+mean absoulate error : 7.0088
+r2 score : 0.9709
+root mean square error : 12.2800
+
+Training LGBMRegressor...
+[LightGBM] [Info] Auto-choosing col-wise multi-threading, the overhead of testing was 0.085422 seconds.
+You can set `force_col_wise=true` to remove the overhead.
+[LightGBM] [Info] Total Bins 15457
+[LightGBM] [Info] Number of data points in the train set: 257334, number of used features: 69
+[LightGBM] [Info] Start training from score 107.496677
+2026/02/25 12:53:49 WARNING mlflow.models.model: `artifact_path` is deprecated. Please use `name` instead.
+-------------------------------------------------------------
+model selection for training dtaset for -> LGBMRegressor
+mean square error : 10.2089
+mean absoulate error : 1.7138
+r2 score : 0.9978
+root mean square error : 3.1951
+-------------------------------------------------------------
+model selection for testg dtaset for -> LGBMRegressor
+mean square error : 27.2135
+mean absoulate error : 2.2402
+r2 score : 0.9947
+root mean square error : 5.2167
+
+Training XGBRegressor...
+2026/02/25 12:54:01 WARNING mlflow.models.model: `artifact_path` is deprecated. Please use `name` instead.
+-------------------------------------------------------------
+model selection for training dtaset for -> XGBRegressor
+mean square error : 5.6867
+mean absoulate error : 1.5773
+r2 score : 0.9988
+root mean square error : 2.3847
+-------------------------------------------------------------
+model selection for testg dtaset for -> XGBRegressor
+mean square error : 26.3153
+mean absoulate error : 2.3159
+r2 score : 0.9949
+root mean square error : 5.1298
+
+Best Baseline Model: "DecisionTree" ->  < overfit >  the best model for deployment < LGBMRegressor >
+
+
+
+
+
+[LightGBM] [Info] Auto-choosing col-wise multi-threading, the overhead of testing was 0.109520 seconds.
+You can set `force_col_wise=true` to remove the overhead.
+[LightGBM] [Info] Total Bins 15457
+[LightGBM] [Info] Number of data points in the train set: 257334, number of used features: 69
+[LightGBM] [Info] Start training from score 107.496677
+mean square error : 22.642707236507842
+mean absoulate error : 1.7215
+r2 score : 0.9956
+root mean square error : 4.7584
+
+--------------------------------------------------------Phase 2 of training is over --------------------------------------------------------------------------
