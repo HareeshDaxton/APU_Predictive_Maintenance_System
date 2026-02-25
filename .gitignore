@@ -1,7 +1,58 @@
+#ENVIRONMENT & SECRETS
+
 .env
+*.env
+
+#PYTHON CACHE & BUILD FILES
+
+pycache/
+*.pyc
+*.pyo
+*.pyd
 __pycache__/
-.APU_venv
+
+#VIRTUAL ENVIRONMENTS
+
+.venv/
+venv/
+env/
+.APU_venv/
+
+#JUPYTER NOTEBOOK
+
 .ipynb_checkpoints/
-.dvc/cache
-logs/
+
+#MLFLOW TRACKING FILES
+
+mlruns/
+mlflow.db
+
+#DVC (DATA VERSION CONTROL)
+.dvc
+.dvc/cache/
 .dvc_storage/
+dvc_storage/
+
+#LOG FILES
+
+logs/
+*.log
+
+
+#IDE & EDITOR SETTINGS
+
+.vscode/
+.idea/
+
+#OS GENERATED FILES
+
+.DS_Store
+Thumbs.db
+
+
+
+
+
+
+
+
