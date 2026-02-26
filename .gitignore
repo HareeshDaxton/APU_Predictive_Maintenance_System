@@ -28,7 +28,7 @@ mlruns/
 mlflow.db
 
 #DVC (DATA VERSION CONTROL)
-.dvc
+
 .dvc/cache/
 .dvc_storage/
 dvc_storage/
