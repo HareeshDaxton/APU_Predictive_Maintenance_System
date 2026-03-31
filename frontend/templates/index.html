@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>FMS · APU Predictive Maintenance</title>
+  <meta name="description" content="Flight Management System — APU Remaining Useful Life Prediction"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Exo+2:wght@300;400;600;700;800&family=Teko:wght@400;500;600&display=swap" rel="stylesheet"/>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}"/>
+</head>
+<body>
+
+<!-- SCANLINE OVERLAY -->
+<div class="scanline-overlay"></div>
+
+<!-- ═══ TOP STRIP ═══ -->
+<div class="top-strip">
+  <div class="ts-left">
+    <span class="ts-callsign">FMS-APU-01</span>
+    <span class="ts-sep">|</span>
+    <span class="ts-label">AUXILIARY POWER UNIT · PREDICTIVE MAINTENANCE SYSTEM</span>
+  </div>
+  <div class="ts-center">
+    <div class="sig-bars">
+      <div class="sig-bar b1"></div>
+      <div class="sig-bar b2"></div>
+      <div class="sig-bar b3"></div>
+      <div class="sig-bar b4"></div>
+      <div class="sig-bar b5"></div>
+    </div>
+    <span class="ts-label">SIGNAL NOMINAL</span>
+  </div>
+  <div class="ts-right">
+    <span class="ts-label">ZULU</span>
+    <span class="ts-clock" id="clock">00:00:00Z</span>
+    <span class="ts-date" id="datestamp">--/--/----</span>
+  </div>
+</div>
+
+<!-- ═══ MAIN SHELL ═══ -->
+<div class="shell">
+
+  <!-- LEFT SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <div class="blade-anim" id="bladeAnim">
+        <svg viewBox="0 0 120 120" width="100" height="100">
+          <circle cx="60" cy="60" r="56" stroke="#1a2a1a" stroke-width="2" fill="none"/>
+          <circle cx="60" cy="60" r="40" stroke="#0d1f0d" stroke-width="1" fill="none"/>
+          <g class="rotor-group" id="rotorG">
+            <path d="M60 60 Q50 30 60 8 Q70 30 60 60" fill="#00ff8822" stroke="#00ff88" stroke-width="1"/>
+            <path d="M60 60 Q50 30 60 8 Q70 30 60 60" fill="#00ff8822" stroke="#00ff88" stroke-width="1" transform="rotate(60 60 60)"/>
+            <path d="M60 60 Q50 30 60 8 Q70 30 60 60" fill="#00ff8822" stroke="#00ff88" stroke-width="1" transform="rotate(120 60 60)"/>
+            <path d="M60 60 Q50 30 60 8 Q70 30 60 60" fill="#00ff8822" stroke="#00ff88" stroke-width="1" transform="rotate(180 60 60)"/>
+            <path d="M60 60 Q50 30 60 8 Q70 30 60 60" fill="#00ff8822" stroke="#00ff88" stroke-width="1" transform="rotate(240 60 60)"/>
+            <path d="M60 60 Q50 30 60 8 Q70 30 60 60" fill="#00ff8822" stroke="#00ff88" stroke-width="1" transform="rotate(300 60 60)"/>
+          </g>
+          <circle cx="60" cy="60" r="12" fill="#0b140b" stroke="#00ff88" stroke-width="2"/>
+          <circle cx="60" cy="60" r="5" fill="#00ff88"/>
+          <text x="60" y="108" text-anchor="middle" font-family="Share Tech Mono" font-size="8" fill="#00ff8866">N1 RPM</text>
+        </svg>
+      </div>
+      <div class="sidebar-brand">
+        <span class="brand-main">APU<span class="g">WATCH</span></span>
+        <span class="brand-ver">v2.4.1 · LightGBM</span>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="nav-item active" data-panel="upload">
+        <span class="nav-icon">⊞</span>
+        <span>LOAD DATA</span>
+      </div>
+      <div class="nav-item" data-panel="dashboard" id="navDashboard">
+        <span class="nav-icon">◈</span>
+        <span>DASHBOARD</span>
+        <span class="nav-badge" id="navBadge" style="display:none">NEW</span>
+      </div>
+    </nav>
+
+    <div class="sidebar-sys">
+      <div class="sys-row"><span>MODEL</span><span class="g">LightGBM</span></div>
+      <div class="sys-row"><span>SCALER</span><span class="g">StdSc</span></div>
+      <div class="sys-row"><span>SENSORS</span><span class="g">14</span></div>
+      <div class="sys-row"><span>STATUS</span><span class="sys-ok">● READY</span></div>
+    </div>
+
+    <!-- Engine health strip -->
+    <div class="eng-health">
+      <div class="eh-label">ENGINE HEALTH INDEX</div>
+      <div class="eh-gauge-wrap">
+        <svg viewBox="0 0 100 56" width="100%" height="56">
+          <path d="M10 50 A40 40 0 0 1 90 50" fill="none" stroke="#1a2a1a" stroke-width="8" stroke-linecap="round"/>
+          <path d="M10 50 A40 40 0 0 1 90 50" fill="none" stroke="url(#healthGrad)" stroke-width="8" stroke-linecap="round"
+                stroke-dasharray="126" stroke-dashoffset="126" id="healthArc" class="health-arc"/>
+          <defs>
+            <linearGradient id="healthGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stop-color="#ff4444"/>
+              <stop offset="50%" stop-color="#f0a500"/>
+              <stop offset="100%" stop-color="#00ff88"/>
+            </linearGradient>
+          </defs>
+          <text x="50" y="52" text-anchor="middle" font-family="Share Tech Mono" font-size="14" fill="#00ff88" id="healthPct">—</text>
+        </svg>
+      </div>
+      <div class="eh-status" id="ehStatus">AWAITING DATA</div>
+    </div>
+  </aside>
+
+  <!-- RIGHT CONTENT -->
+  <main class="content">
+
+    <!-- ══ PANEL: UPLOAD ══ -->
+    <section class="panel" id="panelUpload">
+      <div class="panel-header">
+        <div class="ph-left">
+          <span class="ph-bracket">┌─</span>
+          <span class="ph-title">LOAD FLIGHT SENSOR DATA</span>
+          <span class="ph-bracket">─┐</span>
+        </div>
+        <span class="ph-sub">ACCEPTED FORMAT: CSV · DYNAMIC ROW COUNT</span>
+      </div>
+
+      <!-- DROP ZONE -->
+      <div class="drop-region" id="dropRegion">
+        <div class="drop-corners">
+          <span class="corner tl"></span><span class="corner tr"></span>
+          <span class="corner bl"></span><span class="corner br"></span>
+        </div>
+        <div class="drop-inner" id="dropInner">
+          <div class="drop-radar">
+            <svg viewBox="0 0 120 120" width="110" height="110" id="radarSvg">
+              <circle cx="60" cy="60" r="55" stroke="#00ff8818" stroke-width="1" fill="none"/>
+              <circle cx="60" cy="60" r="38" stroke="#00ff8828" stroke-width="1" fill="none"/>
+              <circle cx="60" cy="60" r="20" stroke="#00ff8838" stroke-width="1" fill="none"/>
+              <line x1="60" y1="5" x2="60" y2="115" stroke="#00ff8815" stroke-width="1"/>
+              <line x1="5" y1="60" x2="115" y2="60" stroke="#00ff8815" stroke-width="1"/>
+              <line x1="60" y1="60" x2="60" y2="5" stroke="#00ff88" stroke-width="2" stroke-linecap="round" class="radar-needle"/>
+              <circle cx="60" cy="60" r="4" fill="#00ff88"/>
+            </svg>
+            <div class="radar-sweep-mask"></div>
+          </div>
+          <p class="drop-main">DRAG & DROP SENSOR DATA FILE</p>
+          <p class="drop-hint">CSV format · engine_id, cycle, op_setting_1-3, sensor_1-21</p>
+          <label class="load-btn" for="fileIn">
+            <span>[ BROWSE FILES ]</span>
+          </label>
+          <input type="file" id="fileIn" accept=".csv" hidden/>
+          <div class="file-ready" id="fileReady" style="display:none">
+            <span class="file-ok">▶</span>
+            <span id="fName">—</span>
+            <span id="fSize" class="fsz">—</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- CHECKLIST -->
+      <div class="preflight">
+        <div class="pf-title">PRE-FLIGHT CHECKLIST</div>
+        <div class="pf-items">
+          <div class="pf-item" id="chk1"><span class="chk-box">□</span> CSV file selected</div>
+          <div class="pf-item" id="chk2"><span class="chk-box">□</span> Engine IDs detected</div>
+          <div class="pf-item" id="chk3"><span class="chk-box">□</span> Sensor columns validated</div>
+          <div class="pf-item" id="chk4"><span class="chk-box">□</span> Data sorted by cycle</div>
+        </div>
+      </div>
+
+      <button class="execute-btn" id="execBtn" disabled>
+        <span class="exec-icon">▶▶</span>
+        EXECUTE INFERENCE SEQUENCE
+        <div class="exec-pulse"></div>
+      </button>
+    </section>
+
+    <!-- ══ PANEL: PROCESSING ══ -->
+    <section class="panel" id="panelProcessing" style="display:none">
+      <div class="panel-header">
+        <div class="ph-left">
+          <span class="ph-bracket">┌─</span>
+          <span class="ph-title">PROCESSING</span>
+          <span class="ph-bracket">─┐</span>
+        </div>
+        <span class="ph-sub blink-text">INFERENCE PIPELINE ACTIVE</span>
+      </div>
+      <div class="proc-body">
+        <div class="proc-visual">
+          <svg viewBox="0 0 200 200" width="180" height="180" style="overflow:visible">
+            <circle cx="100" cy="100" r="90" stroke="#00ff8810" stroke-width="2" fill="none"/>
+            <circle cx="100" cy="100" r="70" stroke="#00ff8820" stroke-width="1" fill="none"/>
+            <circle cx="100" cy="100" r="50" stroke="#00ff8830" stroke-width="1" fill="none"/>
+            <circle cx="100" cy="100" r="90" stroke="#00ff88" stroke-width="2" fill="none"
+              stroke-dasharray="565" stroke-dashoffset="565" id="procCircle"/>
+            <text x="100" y="95" text-anchor="middle" fill="#00ff88" font-family="Share Tech Mono" font-size="14" id="procPct">0%</text>
+            <text x="100" y="114" text-anchor="middle" fill="#4a6a4a" font-family="Share Tech Mono" font-size="8">COMPLETE</text>
+          </svg>
+        </div>
+        <div class="proc-steps">
+          <div class="ps" id="ps0">[ ] Loading artifacts</div>
+          <div class="ps" id="ps1">[ ] Parsing sensor data</div>
+          <div class="ps" id="ps2">[ ] Feature engineering</div>
+          <div class="ps" id="ps3">[ ] Applying StandardScaler</div>
+          <div class="ps" id="ps4">[ ] LightGBM inference</div>
+          <div class="ps" id="ps5">[ ] Computing metrics</div>
+          <div class="ps" id="ps6">[ ] Saving report</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══ PANEL: DASHBOARD ══ -->
+    <section class="panel" id="panelDash" style="display:none">
+
+      <!-- METRIC GAUGES ROW -->
+      <div class="gauge-row" id="gaugeRow"></div>
+
+      <!-- CHART + SUMMARY -->
+      <div class="chart-summary-row">
+        <div class="chart-box">
+          <div class="box-label">RUL PREDICTION vs TRUE · CYCLE TIMELINE</div>
+          <div class="engine-filter" id="engineFilter"></div>
+          <div class="chart-wrap">
+            <canvas id="rulChart"></canvas>
+          </div>
+        </div>
+        <div class="summary-box">
+          <div class="box-label">MISSION SUMMARY</div>
+          <div class="summ-items" id="summItems"></div>
+        </div>
+      </div>
+
+      <!-- DATA TABLE -->
+      <div class="table-panel">
+        <div class="tp-header">
+          <span class="box-label">CYCLE-LEVEL TELEMETRY</span>
+          <div class="tp-controls">
+            <input class="fms-input" id="searchIn" placeholder="Search engine / cycle…" type="text"/>
+            <span class="pg-info" id="pgInfo">—</span>
+            <button class="fms-btn" id="pgPrev">◂</button>
+            <button class="fms-btn" id="pgNext">▸</button>
+          </div>
+        </div>
+        <div class="tbl-wrap">
+          <table class="fms-table">
+            <thead>
+              <tr>
+                <th>ENG</th><th>CYCLE</th><th>TRUE RUL</th><th>PRED RUL</th><th>ΔRUL</th><th>STATUS</th>
+              </tr>
+            </thead>
+            <tbody id="tblBody"></tbody>
+          </table>
+        </div>
+        <div class="tp-footer">
+          <button class="dl-btn" id="dlBtn">⭳ EXPORT FULL REPORT (.CSV)</button>
+        </div>
+      </div>
+
+    </section>
+
+  </main>
+</div>
+
+<!-- BOTTOM STATUS BAR -->
+<div class="status-bar">
+  <div class="sb-left">
+    <span class="sb-dot ok"></span>MODEL ARMED
+    <span class="sb-dot ok" style="margin-left:16px"></span>SCALER LOADED
+    <span class="sb-dot" id="sbInfer"></span><span id="sbInferLabel">INFERENCE IDLE</span>
+  </div>
+  <div class="sb-right" id="sbRight">READY · APU WATCH FLIGHT MANAGEMENT SYSTEM · BUILD 2024.04</div>
+</div>
+
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
