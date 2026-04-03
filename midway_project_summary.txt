@@ -1,13 +1,16 @@
 ================================================================================
-         APU PREDICTIVE MAINTENANCE — FULL PROJECT SUMMARY (MIDWAY)
-         Written on: 2026-03-31  |  For: All Team Members (A to Z Guide)
+         APU PREDICTIVE MAINTENANCE — FULL PROJECT SUMMARY (UPDATED)
+         Written on: 2026-04-01  |  For: All Team Members & AI Assistants
 ================================================================================
 
-NOTE TO TEAM:
-  This project has been built entirely by ONE person from Day 1. If you are
-  reading this, you are joining midway and this document is your complete guide
-  to understanding the project — what it does, how it works, its structure,
-  and what still needs to be done.
+NOTE TO TEAM / AI READER:
+  This project has been built from Day 1 by ONE person. This document is the
+  COMPLETE guide to understanding the project from scratch — what it does,
+  how it works, what has been built, and what the current state is.
+  It is also designed to be handed directly to a new AI assistant so it can
+  continue work without needing prior conversation context.
+
+  LAST UPDATED: 2026-04-01 (covers everything through the frontend build)
 
 ================================================================================
   SECTION 1: WHAT IS THIS PROJECT?
@@ -15,28 +18,31 @@ NOTE TO TEAM:
 
 Full Name : APU Predictive Maintenance System
 Goal      : Predict the Remaining Useful Life (RUL) of an Auxiliary Power Unit
-            (APU) engine — i.e., how many more operational cycles an engine has
-            before it fails — AND detect the type of fault occurring in it.
+            (APU) engine — i.e., how many more operational cycles it has before
+            it fails — AND support detection of the fault type causing degradation.
 
 Why APU?
-  An Auxiliary Power Unit is a small engine on aircraft/vehicles used to
-  provide power when the main engine is off. Predicting when it will fail
-  lets maintenance teams act BEFORE a breakdown happens (Predictive Maintenance
-  vs. Reactive Maintenance).
+  An Auxiliary Power Unit is a small engine on aircraft / vehicles that provides
+  electrical power when the main engine is off. Predicting its failure cycle
+  allows maintenance teams to act BEFORE breakdown (Predictive Maintenance vs.
+  Reactive Maintenance). This saves costs and prevents dangerous in-flight
+  failures.
 
-What does the system do (end-to-end)?
-  1. Takes raw engine sensor time-series data as input.
-  2. Artificially injects fault signatures into the healthy data to create a
-     rich training dataset with known fault labels.
-  3. Splits the data (train/test) in a way that respects time-series integrity.
-  4. Engineers meaningful features from raw sensor readings.
-  5. Trains a LightGBM (LGBM) regression model to predict RUL.
-  6. Tracks all experiments using MLflow.
-  7. Saves the trained model for deployment.
+What the system does end-to-end:
+  1. Takes raw engine sensor time-series data (NASA CMAPSS format) as input.
+  2. Synthetically injects 5 fault types into the healthy data to create a
+     labeled training dataset.
+  3. Splits data by engine (engine-based split) to prevent data leakage.
+  4. Engineers features: RUL, op-condition normalization, cycle normalization,
+     rolling statistics (window=5), StandardScaler.
+  5. Trains a LightGBM Regressor to predict per-cycle RUL.
+  6. Provides an Inference Pipeline that accepts NEW unseen CSV files and
+     outputs per-cycle RUL predictions + validation metrics.
+  7. Serves a professional Aviation-themed web frontend (Flask + Chart.js) for
+     uploading CSV files, running inference, and viewing results interactively.
 
-The current model is a REGRESSION model — it predicts the number of cycles
-remaining (RUL = Remaining Useful Life). This is more powerful than just 
-"is it failing yes/no" because it tells you WHEN.
+Model type: REGRESSION (predicts exact number of cycles remaining, not just
+            a binary "will it fail" flag).
 
 
 ================================================================================
@@ -44,531 +50,654 @@ remaining (RUL = Remaining Useful Life). This is more powerful than just
 ================================================================================
 
 Source Dataset:
-  File   : Artifacts/raw/train_FD002.csv   (also copied to
-            Artifacts/training_datasets/train_FD002.csv)
+  File   : Artifacts/raw/train_FD002.csv
   Origin : NASA CMAPSS (Commercial Modular Aero-Propulsion System Simulation)
            Dataset — specifically the FD002 subset.
   Size   : ~8.8 MB (thousands of engine cycles across 260 engines)
 
-What is in the raw dataset?
-  Each row represents ONE operational cycle of ONE engine. The columns are:
+Raw dataset columns (each row = one operational cycle of one engine):
+  - engine_id       : Unique engine ID (1 to 260)
+  - cycle           : Cycle number (starts at 1, increases until engine fails)
+  - op_setting_1/2/3: Three operational settings (altitude, load, etc.)
+  - sensor_1 to sensor_21: 21 onboard sensor readings per cycle
 
-  - engine_id     : Unique identifier for each engine unit (1 to 260)
-  - cycle         : The cycle number for that engine (starts at 1, goes up
-                    until the engine fails — so higher cycle = closer to death)
-  - op_setting_1  : Operational setting 1 (flight altitude, load, etc.)
-  - op_setting_2  : Operational setting 2
-  - op_setting_3  : Operational setting 3
-  - sensor_1 to sensor_21 : 21 onboard sensor readings per cycle
-                    (e.g., temperature, pressure, rotational speed, vibration)
-
-This raw data represents HEALTHY engines (no faults). The engine simply
-degrades naturally until failure. The dataset has NO fault labels by default.
+This raw data contains ONLY HEALTHY engines. The engine degrades naturally
+until the last cycle. There are NO fault labels in the raw data.
 
 
 ================================================================================
-  SECTION 3: FAULT INJECTION (The Most Important Step — What Makes This Unique)
+  SECTION 3: FAULT INJECTION
 ================================================================================
 
-File: NoteBook/Fault_injection/fault_injection.py
-      (Module version: src/Data_preprocessing/Fault_injection/fault_injection.py)
+Script : NoteBook/Fault_injection/fault_injection.py
+         (Production version: src/Data_preprocessing/Fault_injection/fault_injection.py)
 
-Since the NASA dataset only contains healthy engine degradation (no explicit
-fault events), we SYNTHETICALLY INJECT faults into the data. This creates a
-labeled dataset that the model can learn from.
+Since the NASA dataset has no explicit fault events, we SYNTHETICALLY INJECT
+faults. An Isolation Forest is first trained on the healthy data to score
+anomalies. Then 5 fault patterns are applied independently to every engine.
 
-An Isolation Forest (an unsupervised ML model from scikit-learn) is trained
-on the healthy data first. It then scores each data point — healthy readings
-get low anomaly scores, faulty readings get high anomaly scores.
-
-5 Fault Types Are Injected:
+5 Fault Types:
   -----------------------------------------------------------------------
-  Fault | Name            | Affected Sensors | Description
+  ID | Name            | Affected Sensors       | Pattern
   -----------------------------------------------------------------------
-  0     | healthy         | none             | Original unmodified data
-  1     | gradual_drift   | sensor_2, sensor_7  | Values slowly drift up/down
-                                               over time (max ±10% of mean)
-  2     | bias_shift      | sensor_4, sensor_8  | A sudden constant offset
-                                               is added from a random cycle
-  3     | noise_increase  | sensor_3         | Signal noise grows linearly
-                                               from 1x to 3x the original std
-  4     | spike           | sensor_9         | Sudden large spikes (3–5x std)
-                                               appear randomly (5% density)
-  5     | coupled_fault   | sensor_11, sensor_12 | Two sensors drift together
-                                               at the same rate (coupled)
+  0  | healthy         | none                   | Original data unchanged
+  1  | gradual_drift   | sensor_2, sensor_7     | Values slowly drift ±10%
+  2  | bias_shift      | sensor_4, sensor_8     | Sudden constant offset
+  3  | noise_increase  | sensor_3               | Noise grows 1x→3x std
+  4  | spike           | sensor_9               | Random spikes (3–5x std)
+  5  | coupled_fault   | sensor_11, sensor_12   | Two sensors drift together
   -----------------------------------------------------------------------
 
-Output of Fault Injection:
-  File: Artifacts/Fault_injected_data/Fault_injection_dataset.csv
+Output: Artifacts/Fault_injected_data/Fault_injection_dataset.csv
+  Adds columns: anomaly_score, fault_label, fault_type, fault_target
+  Size   : 6× the raw data (260 engines × 6 variants = 1,560 engine histories)
 
-What this output file looks like (columns):
-  All original columns (engine_id, cycle, op_setting_1-3, sensor_1 to sensor_21)
-  PLUS these new columns added by fault injection:
-  - anomaly_score  : Score from IsolationForest (higher = more anomalous)
-  - fault_label    : Integer (0=healthy, 1=gradual_drift, 2=bias_shift,
-                             3=noise_increase, 4=spike, 5=coupled_fault)
-  - fault_type     : String version of fault_label (e.g., "gradual_drift")
-  - fault_target   : Which sensors were affected (e.g., "sensor_2|sensor_7")
-
-Size: The output has 6x more rows than the input because each fault type
-is applied to EVERY engine in the dataset independently (so 260 engines × 6
-variants = 1,560 engine histories).
-
-Integrity Checks Done Automatically:
-  - Classes are balanced (equal rows per fault type)
-  - No NaN values exist
-  - The healthy portion is byte-identical to the original raw data
-  - Faulty anomaly scores are higher than healthy scores
+Integrity checks run automatically:
+  - Classes balanced (equal rows per fault type)
+  - No NaN values
+  - Healthy portion byte-identical to raw
+  - Faulty anomaly scores higher than healthy
 
 
 ================================================================================
   SECTION 4: DATA SPLITTING
 ================================================================================
 
-Script: entrypoint/data_split.py  →  calls →  src/Data_preprocessing/Data_split/Data_split.py
+Script : entrypoint/data_split.py → src/Data_preprocessing/Data_split/Data_split.py
 
 Input : Artifacts/Fault_injected_data/Fault_injection_dataset.csv
 Output: Artifacts/Data_split/Train_datasets/train_dataset.csv
         Artifacts/Data_split/Test_datasets/test_dataset.csv
 
-How it splits:
-  - Goes by ENGINE UNIT, not by individual rows. This is critical.
-  - 80% of engines go to TRAIN, 20% go to TEST.
-  - The order within each engine (cycles) is preserved — NOT shuffled.
-  - This prevents DATA LEAKAGE: the model never trains on cycles from
-    an engine it will later be tested on.
-  - Random seed = 42 for reproducibility.
-
-Why engine-based splitting?
-  If you split row-by-row randomly, cycles from the same engine end up
-  in both train and test. The model would be "cheating" because it has
-  already seen that engine's early cycles. In the real world, the model
-  will be deployed on BRAND NEW, UNSEEN engines.
+Split method: ENGINE-BASED (not row-by-row)
+  - 80% of engines → train, 20% → test
+  - Order within each engine (cycles) is preserved — NOT shuffled
+  - Random seed = 42 for reproducibility
+  - Prevents DATA LEAKAGE: model never trains on cycles from an engine it
+    will be tested on (mirrors real-world deployment conditions)
 
 
 ================================================================================
   SECTION 5: FEATURE ENGINEERING
 ================================================================================
 
-Script: entrypoint/feature_engineering.py  →  calls  →
-        src/Pipelines/feature_engineering_pipeline.py (class: FeatureEngineering)
+Script : entrypoint/feature_engineering.py
+         → src/Pipelines/feature_engineering_pipeline.py (class: FeatureEngineering)
 
-Input : Artifacts/Data_split/Train_datasets/train_dataset.csv
-        Artifacts/Data_split/Test_datasets/test_dataset.csv
+Input : train_dataset.csv + test_dataset.csv
 Output: Artifacts/preprocessed/train_preprocessed/train_preprocessed.csv
         Artifacts/preprocessed/test_preprocessed/test_preprocessed.csv
-        Artifacts/Scaler/scaler.pkl  (saved StandardScaler object)
+        Artifacts/Scaler/scaler.pkl
 
-Active Sensor Columns Used (14 informative sensors, others dropped as noise):
+Active sensors (14 informative sensors — 7 noisy ones dropped):
   sensor_2, sensor_3, sensor_4, sensor_7, sensor_8, sensor_9,
   sensor_11, sensor_12, sensor_13, sensor_14, sensor_15, sensor_17,
   sensor_20, sensor_21
 
-Features Engineered (4 steps):
+Engineering steps:
 
-  Step 1 — RUL (Remaining Useful Life):
+  Step 1 — RUL:
     RUL = max_cycle_of_engine - current_cycle
-    Tells the model how many cycles remain before the engine failed.
-    This is the TARGET VARIABLE for training.
+    This is the regression TARGET variable.
 
   Step 2 — Operating Condition Normalization:
-    Sensors are grouped by (op_setting_1, op_setting_2, op_setting_3).
-    Within each group, sensors are mean-centered.
-    WHY: Engines run under different conditions (high altitude vs low),
-    which shifts sensor readings. This removes that "operational bias"
-    so the model focuses on DEGRADATION, not operating mode.
+    Sensors are mean-centered within each (op_setting_1/2/3) group.
+    Removes "operational bias" so model focuses on degradation, not flight mode.
 
   Step 3 — Cycle Normalization:
-    cycle_normalized = cycle / max_cycle_of_engine
-    Converts cycle into a 0–1 value representing % of engine life used.
-    WHY: A cycle-50 reading means very different things for an engine
-    that lives 100 cycles vs. 400 cycles.
+    cycle_normalized = cycle / max_cycle_of_engine  (range: 0 to 1)
+    Represents % of engine life consumed.
 
-  Step 4 — Rolling Window Features (window=5 cycles):
-    For each of the 14 active sensors, 3 new features are created:
-    - {sensor}_rolling_mean  : Average of last 5 cycles (smooth trend)
-    - {sensor}_rolling_std   : Std dev of last 5 cycles (instability)
-    - {sensor}_trend         : Cycle-to-cycle difference (direction)
-    WHY: A single cycle reading is noisy. Rolling features give the
-    model temporal context — is the sensor stable or deteriorating?
+  Step 4 — Rolling Window Features (window=5, min_periods=1):
+    For each of 14 sensors: {sensor}_rolling_mean, {sensor}_rolling_std,
+    {sensor}_trend (diff). Gives temporal context to the model.
 
   Step 5 — StandardScaler:
-    All numeric features (except engine_id, RUL, fault columns) are
-    scaled to mean=0, std=1 using StandardScaler.
-    The scaler is FIT on train data ONLY, then applied to test data.
-    The scaler object is saved as scaler.pkl for inference.
+    All numeric features (except engine_id, RUL, fault cols) scaled to
+    mean=0, std=1. Scaler is FIT on train only, then transform-applied to test.
+    Saved as Artifacts/Scaler/scaler.pkl for use at inference time.
+
+  IMPORTANT: anomaly_score IS INCLUDED as a model input feature (it was
+  deliberately kept in X during training — do NOT drop it at inference).
 
 
 ================================================================================
   SECTION 6: MODEL TRAINING
 ================================================================================
 
-Script: entrypoint/training.py  →  calls  →
-        src/Pipelines/trainig_pipeline.py (class: TrainingPipeline)
+Script : entrypoint/training.py → src/Pipelines/trainig_pipeline.py
 
 Algorithm: LightGBM Regressor (LGBMRegressor)
-  LightGBM is a gradient boosting framework by Microsoft. It is extremely
-  fast, memory-efficient, and state-of-the-art for tabular data. It builds
-  an ensemble of decision trees that correct each other's errors.
+  Fast gradient boosting framework. Builds an ensemble of decision trees
+  that correct each other's errors. Excellent for tabular sensor data.
 
-Model Hyperparameters (from config/config.yaml):
-  - n_estimators     : 400  (number of boosting rounds / trees)
-  - learning_rate    : 0.05 (step size per tree — smaller = more careful)
-  - max_depth        : -1   (unlimited tree depth, controlled by num_leaves)
-  - num_leaves       : 50   (max leaf nodes per tree)
-  - subsample        : 1.0  (use all rows per tree)
-  - colsample_bytree : 1.0  (use all features per tree)
-  - min_child_samples: 20   (min samples needed to create a new leaf)
+Hyperparameters (config/config.yaml):
+  n_estimators     : 400
+  learning_rate    : 0.05
+  max_depth        : -1    (unlimited, controlled by num_leaves)
+  num_leaves       : 50
+  subsample        : 1.0
+  colsample_bytree : 1.0
+  min_child_samples: 20
 
-Input : Artifacts/preprocessed/train_preprocessed/train_preprocessed.csv
-        Artifacts/preprocessed/test_preprocessed/test_preprocessed.csv
+Features (X): All engineered columns EXCEPT engine_id, fault_label,
+              fault_type, fault_target, RUL
+  NOTE: anomaly_score IS included in X (the model was trained with it).
 
-Features (X): All columns except engine_id, fault_label, fault_type,
-              fault_target, and RUL
-Target  (Y): RUL (Remaining Useful Life — regression target)
+Target (Y): RUL (continuous regression)
 
-Metrics Evaluated:
-  - MSE  (Mean Squared Error)
-  - MAE  (Mean Absolute Error)
-  - RMSE (Root Mean Squared Error)
-  - R²   (R-squared — coefficient of determination, higher is better)
+Metrics:
+  MSE, MAE, RMSE, R² (R-squared)
 
-Output: Artifacts/Model/model_LGBM.pkl  (saved trained model ~1.8MB)
+Output: Artifacts/Model/model_LGBM.pkl (~1.8MB, saved with joblib)
 
 
 ================================================================================
-  SECTION 7: EXPERIMENT TRACKING (MLflow)
+  SECTION 7: INFERENCE PIPELINE  ← NEW (completed 2026-03-31)
 ================================================================================
 
-Tool Used: MLflow
-Database : mlflow.db  (SQLite database, auto-created, ~540KB)
-Log UI   : Run `mlflow ui` in the terminal to see all experiments in a browser.
+Script : src/Pipelines/inference_pipeline.py (class: InferencePipeline)
+CLI    : python -m entrypoint.inference --input path/to/file.csv
 
-The NoteBook/Models_experimemts/ folder contains:
-  - models.ipynb : The experimental notebook where many model variants
-                   were tried (different algorithms, hyperparameters, etc.)
-  - models.txt   : Plain text log of experiment results and notes
-  - mlruns/      : MLflow run artifacts (auto-generated)
+Purpose:
+  Accepts any NEW, UNSEEN CSV file containing engine sensor data and outputs:
+  1. Per-cycle predictions (engine_id, cycle, true_RUL, predicted_RUL)
+  2. Per-engine metrics + OVERALL metrics (MSE, MAE, RMSE, R²)
+  All saved as a single combined report file.
 
-MLflow tracks: model parameters, metrics (RMSE, MAE, R2), and artifacts
-for every training run, so you can compare results across experiments.
+Input requirements (CSV):
+  REQUIRED columns: engine_id, cycle, op_setting_1, op_setting_2, op_setting_3,
+                    sensor_1 through sensor_21
+  OPTIONAL columns: anomaly_score (auto-filled as 0.0 if absent), fault_label,
+                    fault_type, fault_target (ignored if present)
+  - Must be sorted by (engine_id, cycle) ascending
+  - Supports ANY number of rows (dynamic size — 5 rows or 10,000 rows)
+  - Supports ANY number of engines in the same file
+
+Preprocessing steps (MUST mirror training exactly):
+  1. Load and validate input CSV
+  2. Compute proxy RUL: max_cycle_per_engine - current_cycle
+  3. Normalize operating conditions (mean-center within op_setting groups)
+  4. Add cycle_normalized = cycle / max_cycle_per_engine
+  5. Add rolling features (window=5, min_periods=1) for 14 sensors
+  6. Inject anomaly_score = 0.0 if the column is missing
+     (The scaler was trained with anomaly_score; new clean data won't have it,
+      so we default to 0 meaning "no anomaly detected")
+  7. Apply saved StandardScaler (TRANSFORM ONLY — never refit on new data)
+  8. Drop non-feature columns (engine_id, RUL, fault_label, fault_type,
+     fault_target) — anomaly_score IS KEPT as a model feature
+  9. Run model.predict(X) — 69 features expected by the model
+  10. Compute metrics: MSE, MAE, RMSE, R²
+  11. Save single combined report CSV
+
+Output file: Artifacts/model_validations/report_TIMESTAMP.csv
+  Structure:
+    # -- SECTION 1: CYCLE-LEVEL PREDICTIONS --
+    engine_id, cycle, true_RUL, predicted_RUL
+    [all prediction rows]
+
+    # -- SECTION 2: ENGINE METRICS --
+    engine_id, num_cycles, MSE, MAE, RMSE, R2
+    [per-engine rows]
+    OVERALL, [total_rows], MSE, MAE, RMSE, R2
+
+  NOTE: Previously two separate files (predictions_TIMESTAMP.csv and
+  metrics_TIMESTAMP.csv) were generated. These have now been MERGED into one
+  single report_TIMESTAMP.csv file.
+
+Understanding true_RUL vs. predicted_RUL:
+  - true_RUL: The PROXY ground-truth calculated from the input file itself
+    (max_cycle - current_cycle). It tells you how many cycles remain within
+    the time window present in the file.
+  - predicted_RUL: What the LightGBM model predicts from the sensor readings.
+  - For VALIDATION: feed the test dataset (full engine histories are known) →
+    true_RUL is accurate → compute MSE/MAE/RMSE/R² meaningfully.
+  - For PRODUCTION: true_RUL from a live feed is a RELATIVE proxy only (engine
+    hasn't failed yet). You can validate later, once the engine actually fails,
+    by comparing past predictions to the known end date.
+
+Key bugs fixed during development:
+  - Missing anomaly_score: scaler crashed → fixed by auto-injecting 0.0
+  - Feature count mismatch (68 vs 69): anomaly_score was wrongly dropped from
+    _select_features → fixed by keeping it in X (model was trained with it)
+  - Windows charmap encoding error: → replaced Unicode arrows with ASCII ->
+    and added sys.stdout.reconfigure(encoding='utf-8') in Flask app
 
 
 ================================================================================
-  SECTION 8: NOTEBOOKS (Research & Exploration)
+  SECTION 8: VALIDATION STRATEGY
 ================================================================================
 
-NoteBook/feature_engineering.ipynb
-  The original exploratory notebook where all the feature engineering ideas
-  were researched and prototyped before being converted to Python scripts.
-  Good for understanding WHY each feature was chosen.
+Two validation scenarios:
 
-NoteBook/Fault_injection/rough.ipynb
-  Scratch/rough notebook used during fault injection experimentation.
+SCENARIO A — OFFLINE TESTING (known full engine histories):
+  Use: Artifacts/Data_split/Test_datasets/test_dataset.csv
+  This file contains complete engine histories (all cycles, start to failure).
+  true_RUL is computed from the last cycle for each engine, which IS accurate.
+  Run: python -m entrypoint.inference --input Artifacts/Data_split/Test_datasets/test_dataset.csv
+  Output: Full metrics (MSE, MAE, RMSE, R²) with real ground truth.
 
-NoteBook/Models_experimemts/models.ipynb
-  Full model experimentation notebook. Contains trials with multiple
-  algorithms (Random Forest, XGBoost, LightGBM, etc.) and tuning.
+SCENARIO B — PRODUCTION (live engines, ongoing data):
+  Feed: Latest sensor readings CSV (engine hasn't failed yet)
+  true_RUL here is a RELATIVE proxy (how many cycles since last observation).
+  Use model predictions for maintenance alerts (CRITICAL/WARNING/NOMINAL).
+  After the engine eventually fails, go back and audit past predictions
+  against the known failure date to measure model accuracy retrospectively.
 
-NoteBook/Expriments/excp1.ipynb
-  Early-stage experiment notebook.
-
-NoteBook/Raw_exp/train_FD002_raw.ipynb
-  Initial exploration of the raw NASA dataset.
+Status thresholds (frontend UI badges):
+  CRITICAL : predicted_RUL < 15% of dataset's max RUL
+  WARNING  : predicted_RUL < 40% of dataset's max RUL
+  NOMINAL  : everything else
+  (These are DYNAMIC / relative thresholds — recalculated per uploaded file
+   so they work correctly for files with 20 rows AND files with 2000 rows.)
 
 
 ================================================================================
-  SECTION 9: UTILITY MODULES
+  SECTION 9: FRONTEND (APUWATCH)  ← NEW (completed 2026-04-01)
+================================================================================
+
+Location: frontend/
+  ├── app.py                  ← Flask backend server (API + HTML serving)
+  ├── templates/
+  │   └── index.html          ← Full aviation FMS UI
+  └── static/
+      ├── css/style.css       ← Aviation dark cockpit stylesheet
+      └── js/main.js          ← Upload, inference, Chart.js, table logic
+
+Run command (from project root):
+  cd E:\APU_Predictive_Maintenance
+  $env:PYTHONIOENCODING='utf-8'; .APU_venv\Scripts\python frontend/app.py
+
+Then open: http://127.0.0.1:5000
+
+Backend (app.py):
+  - Flask server on port 5000
+  - POST /predict — accepts multipart CSV upload, runs InferencePipeline,
+    returns JSON: { success, total_rows, total_engines, overall_metrics,
+                    per_engine_metrics, predictions }
+  - CORS enabled via flask-cors
+  - sys.stdout.reconfigure(encoding='utf-8') to prevent Windows charmap errors
+
+Frontend Design — "APUWATCH Flight Management System":
+  Theme      : Aviation cockpit. Matte black background, HUD green (#00ff88)
+               accents, amber warnings, scanlines overlay, Orbitron/Teko fonts.
+  Layout     : Side navigation bar (240px) + scrollable main content area.
+
+  Sidebar:
+    - Animated spinning APU turbine rotor (SVG, CSS animation)
+    - APUWATCH brand + LightGBM version label
+    - Navigation: LOAD DATA | DASHBOARD
+    - System info strip: MODEL / SCALER / SENSORS / STATUS
+    - Engine Health Index semi-circular gauge (fills based on R² score)
+
+  Top strip:
+    - FMS-APU-01 callsign, system name
+    - Animated signal bars (5 bars, pulsing)
+    - Live UTC Zulu time + date
+
+  Panel 1 — LOAD DATA:
+    - Radar sweep animation in upload zone
+    - Drag & drop CSV zone with corner bracket styling
+    - Pre-flight checklist (4 items animate as checked when file loaded)
+    - "EXECUTE INFERENCE SEQUENCE" button (disabled until file loaded)
+
+  Panel 2 — PROCESSING (shown during inference):
+    - Circular SVG progress ring (animates 0% → 100%)
+    - 7 step-by-step pipeline status items (active/done states)
+
+  Panel 3 — DASHBOARD (shown after inference):
+    - 4 Metric Gauge Cards: MSE (green ring), MAE (amber), RMSE (blue), R² (purple)
+      Each has an animated SVG ring fill.
+    - Chart.js line chart: True RUL (green) vs Predicted RUL (amber dashed)
+      over cycle timeline. Engine filter pills (ALL | engine_id) to filter chart.
+    - Mission Summary box: total records, engines, min/max RUL,
+      critical cycles count, overall R².
+    - Cycle-Level Telemetry table (paginated, 25 rows/page):
+      Columns: ENG | CYCLE | TRUE RUL | PRED RUL | ΔRUL | STATUS
+      STATUS badge: CRITICAL / WARNING / NOMINAL (dynamic relative thresholds)
+    - Search/filter by engine or cycle number
+    - Export Full Report (.CSV) download button
+
+  Bottom status bar:
+    Persistent: MODEL ARMED · SCALER LOADED · INFERENCE [status]
+
+  Animations:
+    - Scanlines overlay (CSS repeating gradient)
+    - Rotor spin (CSS keyframe, 4s linear infinite)
+    - Radar sweep (conic-gradient rotation)
+    - Signal bar pulse
+    - Status dot pulse
+    - Gauge ring fill (CSS transition, 1.4s cubic-bezier)
+    - Processing ring stroke animation
+    - Button shimmer sweep
+
+Verified end-to-end (2026-04-01):
+  Input: testing_datasets/exp/data_testing_1.csv (20 rows, engine 72)
+  Results: MSE=0.136, MAE=0.3014, RMSE=0.3688, R²=0.9941, Health=99% HEALTHY
+
+
+================================================================================
+  SECTION 10: EXPERIMENT TRACKING (MLflow)
+================================================================================
+
+Tool : MLflow
+DB   : mlflow.db (SQLite, ~540KB, auto-created)
+UI   : Run `mlflow ui` in terminal → open http://localhost:5000
+
+NoteBook/Models_experimemts/:
+  - models.ipynb : Model variants tested (Random Forest, XGBoost, LightGBM)
+  - models.txt   : Experiment notes
+  - mlruns/      : MLflow run artifacts
+
+NOTE: The entrypoint training pipeline (entrypoint/training.py) does NOT yet
+log to MLflow. Only notebook experiments use it.
+
+
+================================================================================
+  SECTION 11: UTILITY MODULES
 ================================================================================
 
 Utils/Logging/logger.py
-  Custom logging setup. Every time a pipeline runs, it creates a new
-  timestamped log file inside the logs/ folder.
-  Format: logs/YYYY-MM-DD_HH-MM-SS.log/YYYY-MM-DD_HH-MM-SS.log
+  Custom logging. Each pipeline run creates a new file at:
+  logs/YYYY-MM-DD_HH-MM-SS.log/YYYY-MM-DD_HH-MM-SS.log
   All pipeline steps log their progress here.
 
 Utils/Exception/exception.py
-  Custom exception class (CustomException). When any error occurs,
-  it captures the exact FILE NAME and LINE NUMBER of the error and
-  prints a helpful error message. This makes debugging much easier.
+  Custom exception class (CustomException). Captures file name + line number
+  of any error for easy debugging.
 
 
 ================================================================================
-  SECTION 10: CONFIGURATION
+  SECTION 12: CONFIGURATION
 ================================================================================
 
-File: config/config.yaml  (SINGLE SOURCE OF TRUTH — all paths and params here)
+File: config/config.yaml  ← SINGLE SOURCE OF TRUTH
 
-Key sections:
-  - project     : Project name and random seed
-  - data        : All file paths (input/output) for every stage
-  - features    : Column names for sensors, operational settings, targets
-  - model       : LightGBM hyperparameters
-  - training    : Training random seed
-  - faults      : Metadata for each fault type (name, affected sensors)
+Sections:
+  - project  : Name, random seed
+  - data     : All input/output file paths
+  - features : Sensor columns, op settings, target
+  - model    : LightGBM hyperparameters
+  - training : Training seed
+  - faults   : Fault type metadata
 
-If a path changes, ONLY update config.yaml — all scripts read from it.
+Rule: If a path changes, ONLY edit config.yaml. All scripts read from it.
+
+Key paths defined in config:
+  scaler_path         : Artifacts/Scaler/scaler.pkl
+  train_data_path     : Artifacts/Data_split/Train_datasets/train_dataset.csv
+  test_data_path      : Artifacts/Data_split/Test_datasets/test_dataset.csv
+  train_preprocessed  : Artifacts/preprocessed/train_preprocessed/train_preprocessed.csv
+  test_preprocessed   : Artifacts/preprocessed/test_preprocessed/test_preprocessed.csv
 
 
 ================================================================================
-  SECTION 11: VERSION CONTROL & DATA MANAGEMENT
+  SECTION 13: VERSION CONTROL & DATA MANAGEMENT
 ================================================================================
 
-Git     : Standard version control (tracked via .git/)
-DVC     : Data Version Control — used to version the large data files
-          that cannot be stored in Git (CSV files are too large).
-  - .dvc/           : DVC configuration
-  - dvc_storage/    : Local DVC cache/remote storage
+Git : Standard version control (.git/)
+DVC : Data Version Control for large CSV files (too large for Git)
+  - .dvc/           : DVC config
+  - dvc_storage/    : Local DVC cache
   - Artifacts/Data_split.dvc : DVC-tracked artifact manifest
 
-This means the actual large CSV files are NOT committed to Git.
-To get the data files: run `dvc pull` after cloning the repo.
+To get data files after cloning: run `dvc pull`
 
 
 ================================================================================
-  SECTION 12: DEPLOYMENT READINESS
-================================================================================
-
-Dockerfile: Present in project root (currently EMPTY — not yet written).
-  This is a placeholder for containerizing the project.
-  Future work: Write the Dockerfile to package the full pipeline into a
-  Docker container for deployment.
-
-.env file: Present (for environment variables — not yet configured).
-
-src/Pipelines/inference_pipeline.py: File exists but is currently EMPTY.
-  Future work: Implement real-time/batch inference using the saved
-  model_LGBM.pkl and scaler.pkl.
-
-
-================================================================================
-  SECTION 13: HOW TO RUN THE PROJECT (STEP BY STEP)
+  SECTION 14: HOW TO RUN (STEP BY STEP)
 ================================================================================
 
 Prerequisites:
-  - Python 3.9+ installed
-  - Virtual environment: .APU_venv (already exists)
-  - Activate it: .APU_venv\Scripts\activate    (Windows)
+  - Python 3.9+
+  - Activate virtual env: .APU_venv\Scripts\activate  (Windows)
+  - pip install -r requirements.txt
 
-Install dependencies:
-  pip install -r requirements.txt
+ALL COMMANDS run from project root: E:\APU_Predictive_Maintenance\
 
-NOTE: All commands must be run from the PROJECT ROOT directory:
-  E:\APU_Predictive_Maintenance\
+--- (First time only — data pipeline) ---
 
---- STEP 1: Fault Injection (Run FIRST, only once) ---
+STEP 1: Fault Injection
   python NoteBook/Fault_injection/fault_injection.py
   Output: Artifacts/Fault_injected_data/Fault_injection_dataset.csv
 
---- STEP 2: Data Splitting ---
+STEP 2: Data Splitting
   python entrypoint/data_split.py
   Output: Artifacts/Data_split/Train_datasets/train_dataset.csv
           Artifacts/Data_split/Test_datasets/test_dataset.csv
 
---- STEP 3: Feature Engineering ---
+STEP 3: Feature Engineering
   python entrypoint/feature_engineering.py
-  Output: Artifacts/preprocessed/train_preprocessed/train_preprocessed.csv
-          Artifacts/preprocessed/test_preprocessed/test_preprocessed.csv
+  Output: Artifacts/preprocessed/{train,test}_preprocessed/*.csv
           Artifacts/Scaler/scaler.pkl
 
---- STEP 4: Model Training ---
+STEP 4: Model Training
   python entrypoint/training.py
   Output: Artifacts/Model/model_LGBM.pkl
 
---- OPTIONAL: View MLflow Experiments ---
-  mlflow ui
-  Then open browser at: http://localhost:5000
+--- (Inference — use saved model on new data) ---
 
---- OPTIONAL: Run model experiment notebook ---
-  Open NoteBook/Models_experimemts/models.ipynb in Jupyter
+STEP 5: Run Inference (CLI)
+  python -m entrypoint.inference --input path/to/sensor_data.csv
+  Example: python -m entrypoint.inference --input Artifacts/Data_split/Test_datasets/test_dataset.csv
+  Output: Artifacts/model_validations/report_TIMESTAMP.csv
 
+STEP 6: Run Frontend Web App
+  $env:PYTHONIOENCODING='utf-8'; .APU_venv\Scripts\python frontend/app.py
+  Open: http://127.0.0.1:5000
+  Upload a CSV → click EXECUTE → view Dashboard with metrics + chart + table
 
-================================================================================
-  SECTION 14: INPUTS — FORMAT & REQUIREMENTS
-================================================================================
+--- (Optional) ---
 
-PRIMARY INPUT (required before anything else):
-  File    : Artifacts/raw/train_FD002.csv
-            (also at: Artifacts/training_datasets/train_FD002.csv)
-  Format  : CSV (Comma Separated Values)
-  Encoding: UTF-8
-
-  REQUIRED COLUMNS (in any order, exact names matter):
-  ┌─────────────────┬────────────────────────────────────────────────────┐
-  │ Column Name     │ Description                                        │
-  ├─────────────────┼────────────────────────────────────────────────────┤
-  │ engine_id       │ Integer. Unique ID for each engine (e.g., 1–260)   │
-  │ cycle           │ Integer. Operational cycle number (1, 2, 3, ...)   │
-  │ op_setting_1    │ Float. Operational setting 1                       │
-  │ op_setting_2    │ Float. Operational setting 2                       │
-  │ op_setting_3    │ Float. Operational setting 3                       │
-  │ sensor_1        │ Float. Sensor reading 1                            │
-  │ sensor_2        │ Float. Sensor reading 2                            │
-  │ ...             │ ...                                                │
-  │ sensor_21       │ Float. Sensor reading 21                           │
-  └─────────────────┴────────────────────────────────────────────────────┘
-
-  IMPORTANT RULES FOR INPUT DATA:
-  - Each row is ONE time step (one cycle) for ONE engine.
-  - Data must be sequential — sorted by (engine_id, cycle) ascending.
-  - The engine runs from cycle 1 until end-of-life (no need to label
-    when it fails — that is inferred as the last cycle for that engine_id).
-  - NO missing values (NaNs) allowed in sensor columns.
-  - Multiple engines can exist in the same file.
-  - The raw file should contain ONLY HEALTHY data (no pre-existing faults).
+  mlflow ui                   ← View all training experiments
+  Open NoteBook/**/*.ipynb    ← Explore research notebooks in Jupyter
 
 
 ================================================================================
-  SECTION 15: OUTPUTS — WHAT YOU GET
+  SECTION 15: INPUTS FORMAT & REQUIREMENTS
+================================================================================
+
+TRAINING INPUT (Sections 1–4):
+  File   : Artifacts/raw/train_FD002.csv
+  Format : CSV, UTF-8
+  Columns: engine_id, cycle, op_setting_1-3, sensor_1-21 (all required, in order)
+  Rules  : Sorted by (engine_id, cycle), no NaN, healthy data only
+
+INFERENCE INPUT (Section 7):
+  Format  : CSV, any number of rows
+  Required: engine_id, cycle, op_setting_1-3, sensor_1-21
+  Optional: anomaly_score (auto-filled 0.0), fault_label, fault_type, fault_target
+  Rules   : Sorted by (engine_id, cycle), no NaN, can have multiple engines
+
+
+================================================================================
+  SECTION 16: OUTPUTS SUMMARY
 ================================================================================
 
 OUTPUT 1: Fault-Injected Dataset
-  File   : Artifacts/Fault_injected_data/Fault_injection_dataset.csv
-  What   : 6x expanded dataset (healthy + 5 synthetic fault types)
-  Columns: All original columns + anomaly_score, fault_label,
-           fault_type, fault_target
-  Use for: Feeding into the training pipeline
+  Artifacts/Fault_injected_data/Fault_injection_dataset.csv
+  Columns: original + anomaly_score, fault_label, fault_type, fault_target
 
 OUTPUT 2: Train/Test Split CSVs
-  Files  : Artifacts/Data_split/Train_datasets/train_dataset.csv
-            Artifacts/Data_split/Test_datasets/test_dataset.csv
-  What   : 80/20 engine-based split of the fault-injected dataset
-  Use for: Feeding into feature engineering
+  Artifacts/Data_split/{Train,Test}_datasets/*.csv
 
 OUTPUT 3: Preprocessed Feature CSVs
-  Files  : Artifacts/preprocessed/train_preprocessed/train_preprocessed.csv
-            Artifacts/preprocessed/test_preprocessed/test_preprocessed.csv
-  What   : Engineered & scaled features ready for model consumption
-  Columns: All original + RUL, cycle_normalized, {sensor}_rolling_mean,
-           {sensor}_rolling_std, {sensor}_trend (for 14 sensors)
-  Use for: Training the model
+  Artifacts/preprocessed/{train,test}_preprocessed/*.csv
+  68+ engineered features per row
 
-OUTPUT 4: Scaler Object
-  File   : Artifacts/Scaler/scaler.pkl
-  What   : Saved StandardScaler object (Python/joblib format)
-  Use for: Applying the same scaling to new inference data
+OUTPUT 4: StandardScaler
+  Artifacts/Scaler/scaler.pkl  (joblib format, fit on train only)
 
-OUTPUT 5: Trained Model
-  File   : Artifacts/Model/model_LGBM.pkl
-  What   : Saved LightGBM Regressor (~1.8MB, Python/joblib format)
-  Use for: Predicting RUL on new engine data
-  How to load:
+OUTPUT 5: Trained LightGBM Model
+  Artifacts/Model/model_LGBM.pkl  (~1.8MB, joblib format, 69 input features)
+  Load:
     import joblib
-    model = joblib.load('Artifacts/Model/model_LGBM.pkl')
+    model  = joblib.load('Artifacts/Model/model_LGBM.pkl')
     scaler = joblib.load('Artifacts/Scaler/scaler.pkl')
-    predictions = model.predict(scaler.transform(X_new))
+    preds  = model.predict(X)  # X must have 69 features in same order as training
 
-OUTPUT 6: Log Files
-  Location: logs/  (one new timestamped folder per pipeline run)
-  What   : Detailed runtime logs from every pipeline step
-  Use for: Debugging errors, auditing what ran and when
+OUTPUT 6: Inference Report (Single Combined File)
+  Artifacts/model_validations/report_TIMESTAMP.csv
+  Contains: predictions section + metrics section in one file
+
+OUTPUT 7: Log Files
+  logs/YYYY-MM-DD_HH-MM-SS.log/
 
 
 ================================================================================
-  SECTION 16: FOLDER & FILE ROLES SUMMARY
+  SECTION 17: COMPLETE FOLDER STRUCTURE (CURRENT STATE)
 ================================================================================
 
 E:\APU_Predictive_Maintenance\
 │
 ├── config/
-│   └── config.yaml            ← MASTER CONFIG. All paths & hyperparameters.
-│                                Change this, not the source code.
+│   └── config.yaml                    ← MASTER CONFIG. All paths & hyperparams.
 │
-├── src/                       ← Core production source code
+├── src/
 │   ├── Data_preprocessing/
 │   │   ├── Data_split/
-│   │   │   └── Data_split.py  ← Engine-based train/test splitting logic
+│   │   │   └── Data_split.py          ← Engine-based train/test split logic
 │   │   └── Fault_injection/
-│   │       └── fault_injection.py ← Fault injection logic (src version)
+│   │       └── fault_injection.py     ← Fault injection (src version)
 │   └── Pipelines/
 │       ├── feature_engineering_pipeline.py ← Full FE pipeline class
-│       ├── trainig_pipeline.py             ← LightGBM training class
-│       └── inference_pipeline.py           ← [EMPTY] Future inference code
+│       ├── trainig_pipeline.py              ← LightGBM training class
+│       └── inference_pipeline.py            ← [COMPLETE] Inference pipeline
 │
-├── entrypoint/                ← CLI entry scripts. Run THESE to execute steps.
-│   ├── data_split.py          ← Runs DataSplit
-│   ├── feature_engineering.py ← Runs FeatureEngineering
-│   └── training.py            ← Runs TrainingPipeline
+├── entrypoint/
+│   ├── data_split.py                  ← Runs DataSplit
+│   ├── feature_engineering.py         ← Runs FeatureEngineering
+│   ├── training.py                    ← Runs TrainingPipeline
+│   └── inference.py                   ← CLI wrapper for InferencePipeline
+│
+├── frontend/                          ← [NEW] Web frontend
+│   ├── app.py                         ← Flask server (POST /predict endpoint)
+│   ├── templates/
+│   │   └── index.html                 ← Aviation FMS UI (APUWATCH)
+│   └── static/
+│       ├── css/style.css              ← Cockpit dark theme stylesheet
+│       └── js/main.js                 ← Upload + Chart.js + table logic
 │
 ├── Utils/
-│   ├── Logging/logger.py      ← Custom logger (timestamps + log files)
-│   └── Exception/exception.py ← Custom exception (file + line number info)
+│   ├── Logging/logger.py              ← Custom logger (timestamped log files)
+│   └── Exception/exception.py         ← Custom exception (filename + line no.)
 │
-├── NoteBook/                  ← Research & Prototyping (not production code)
-│   ├── feature_engineering.ipynb    ← FE research
+├── NoteBook/                          ← Research & prototyping (not production)
+│   ├── feature_engineering.ipynb
 │   ├── Fault_injection/
-│   │   ├── fault_injection.py       ← STANDALONE (can run independently)
-│   │   ├── Fault_injection_dataset.csv ← Local copy of injected data
-│   │   └── rough.ipynb              ← scratch work
+│   │   ├── fault_injection.py         ← Standalone fault injection
+│   │   ├── Fault_injection_dataset.csv
+│   │   └── rough.ipynb
 │   ├── Models_experimemts/
-│   │   ├── models.ipynb             ← All model experiments
-│   │   ├── models.txt               ← Experiment notes
-│   │   └── mlruns/                  ← MLflow run logs for notebooks
-│   ├── Expriments/excp1.ipynb       ← Early experiments
-│   └── Raw_exp/train_FD002_raw.ipynb ← Initial raw data exploration
+│   │   ├── models.ipynb
+│   │   ├── models.txt
+│   │   └── mlruns/
+│   ├── Expriments/excp1.ipynb
+│   └── Raw_exp/train_FD002_raw.ipynb
 │
-├── Artifacts/                 ← All generated data & model files
-│   ├── raw/
-│   │   └── train_FD002.csv          ← Raw NASA dataset (DO NOT MODIFY)
-│   ├── training_datasets/
-│   │   └── train_FD002.csv          ← Copy of raw data used by notebook FI
-│   ├── Fault_injected_data/
-│   │   └── Fault_injection_dataset.csv ← Output of Step 1
+├── Artifacts/
+│   ├── raw/train_FD002.csv            ← Raw NASA data (DO NOT MODIFY)
+│   ├── training_datasets/train_FD002.csv
+│   ├── Fault_injected_data/Fault_injection_dataset.csv
 │   ├── Data_split/
-│   │   ├── Train_datasets/train_dataset.csv ← Output of Step 2
-│   │   └── Test_datasets/test_dataset.csv   ← Output of Step 2
+│   │   ├── Train_datasets/train_dataset.csv
+│   │   └── Test_datasets/test_dataset.csv
 │   ├── preprocessed/
-│   │   ├── train_preprocessed/train_preprocessed.csv ← Output of Step 3
-│   │   └── test_preprocessed/test_preprocessed.csv   ← Output of Step 3
-│   ├── Scaler/
-│   │   └── scaler.pkl               ← Saved scaler (Output of Step 3)
-│   └── Model/
-│       └── model_LGBM.pkl           ← Trained LightGBM model (Output of Step 4)
+│   │   ├── train_preprocessed/train_preprocessed.csv
+│   │   └── test_preprocessed/test_preprocessed.csv
+│   ├── Scaler/scaler.pkl              ← Saved StandardScaler
+│   ├── Model/model_LGBM.pkl           ← Saved LightGBM model (69 features)
+│   └── model_validations/             ← [NEW] Inference output reports
+│       ├── report_TIMESTAMP.csv       ← Combined predictions + metrics
+│       └── README.txt
 │
-├── logs/                      ← Auto-generated run logs (one folder per run)
-│   └── YYYY-MM-DD_HH-MM-SS.log/ ← Log folder
-│       └── YYYY-MM-DD_HH-MM-SS.log ← Log text file
+├── testing_datasets/                  ← [NEW] Test CSVs for inference testing
+│   └── exp/
+│       └── data_testing_1.csv         ← 20-row sample (engine 72)
 │
-├── mlflow.db                  ← MLflow experiment tracking database (SQLite)
-├── requirements.txt           ← Python library dependencies
-├── Dockerfile                 ← [EMPTY] For future Docker containerization
-├── .env                       ← Environment variables (future use)
-├── .dvcignore                 ← DVC ignore patterns
-├── .APU_venv/                 ← Python virtual environment (DO NOT MODIFY)
-└── dvc_storage/               ← Local DVC data cache
+├── logs/                              ← Auto-generated run logs
+├── mlflow.db                          ← MLflow experiment database (SQLite)
+├── requirements.txt                   ← Python dependencies
+├── Dockerfile                         ← [EMPTY] Future Docker containerization
+├── .env                               ← Environment variables (future)
+├── .APU_venv/                         ← Python virtual environment
+└── dvc_storage/                       ← Local DVC data cache
 
 
 ================================================================================
-  SECTION 17: WHAT IS NOT DONE YET (REMAINING WORK)
+  SECTION 18: CRITICAL TECHNICAL NOTES FOR AI/DEVELOPERS
 ================================================================================
 
-  1. Inference Pipeline (src/Pipelines/inference_pipeline.py)
-     → Currently EMPTY. Needs to be written to accept a new engine's sensor
-       data and output the RUL prediction using the saved model and scaler.
+1. FEATURE COUNT: The trained LightGBM model expects EXACTLY 69 features.
+   If you add or remove any feature engineering step, you must RETRAIN the model.
 
-  2. Dockerfile
-     → Currently EMPTY. Needs to be written to containerize the full project
-       for cloud/server deployment.
+2. ANOMALY_SCORE IS A FEATURE: During training, 'anomaly_score' was kept in X
+   (it is NOT in the drop_columns list in trainig_pipeline.py). At inference,
+   if the input CSV doesn't have this column, add it as 0.0 (neutral default).
+   DO NOT drop it from X before calling model.predict().
 
-  3. Fault Classification Model
-     → Currently only RUL regression is trained. A CLASSIFICATION model
-       (predicting fault_type: gradual_drift, bias_shift, etc.) could be
-       added as a second model head.
+3. SCALER MUST INCLUDE ANOMALY_SCORE: The StandardScaler was fit on features
+   including 'anomaly_score'. So at inference, add anomaly_score=0.0 BEFORE
+   calling scaler.transform(). Then keep it in X for the model.
 
-  4. API / Web Interface
-     → No REST API or web frontend yet. FastAPI or Flask could expose the
-       inference pipeline as a live prediction service.
+4. PROXY RUL AT INFERENCE: true_RUL at inference is computed as:
+   max_cycle_per_engine - current_cycle within the INPUT FILE ONLY.
+   For a 20-row file with cycles 141-160, max_RUL = 19, min_RUL = 0.
+   This does NOT mean the engine is dead — it means cycle 160 is the LAST
+   cycle in the FILE. In production, the engine may have many more cycles.
 
-  5. README.md
-     → Currently empty. Needs to be filled with project documentation.
+5. DYNAMIC STATUS THRESHOLDS: The frontend uses relative thresholds for
+   CRITICAL/WARNING/NOMINAL badges:
+     CRITICAL = predicted_RUL < 15% of dataset's own max RUL
+     WARNING  = predicted_RUL < 40% of dataset's own max RUL
+   This prevents all rows from being flagged CRITICAL when a small file
+   (e.g., 20 rows with max RUL=16) is uploaded.
 
-  6. MLflow Integration in Pipelines
-     → The entrypoint training pipeline doesn't log to MLflow yet.
-       Only the notebook-based experiments use MLflow.
+6. ENCODING: All file I/O uses encoding='utf-8'. The Flask app sets
+   sys.stdout.reconfigure(encoding='utf-8') to prevent Windows charmap errors
+   from Unicode characters in logging output.
+
+7. ROLLING FEATURES USE min_periods=1: This allows rolling statistics to be
+   computed even on the first row (where window isn't full yet). Essential for
+   small input files.
+
+8. RUN FROM PROJECT ROOT: ALL scripts (inference, frontend, training) must be
+   run from E:\APU_Predictive_Maintenance\ because all paths in config.yaml
+   are relative to the project root.
+
+
+================================================================================
+  SECTION 19: WHAT IS STILL NOT DONE (REMAINING WORK)
+================================================================================
+
+  1. Dockerfile
+     File exists but is EMPTY. Need to write it to containerize the project
+     for deployment. Should include: Python 3.9+ base, pip install -r
+     requirements.txt, COPY all source files, CMD to run frontend/app.py.
+
+  2. MLflow Integration in Training Entrypoint
+     entrypoint/training.py does not yet log to MLflow. Only the notebook
+     experiments use MLflow. Should add mlflow.log_params() and
+     mlflow.log_metrics() calls inside trainig_pipeline.py.
+
+  3. README.md
+     project root README.md is currently empty. Should document project
+     overview, setup, and usage (can largely copy from this file).
+
+  4. Real-time Streaming
+     Currently inference is batch (whole CSV at once). A streaming mode
+     (cycle by cycle via API) has not been built.
+
+  NOTE: Fault type classification has been deliberately EXCLUDED from the
+  project scope. The primary and only prediction goal is RUL. Fault injection
+  was used purely as a training data augmentation technique to make the model
+  more robust to different degradation patterns — it does not need to become
+  a separate output. In the real world, fault types are infinite and unlabeled;
+  RUL is the actionable signal that drives maintenance decisions.
 
 
 ================================================================================
   END OF SUMMARY
-  This summary was auto-generated by reviewing every file and folder in the
-  project. Last updated: 2026-03-31.
+  This document covers everything built through 2026-04-01.
+  Next update should be made after Dockerization.
 ================================================================================
