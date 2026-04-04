@@ -1,0 +1,61 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Virtual environment
+.APU_venv/
+venv/
+env/
+
+# Git
+.git/
+.gitignore
+
+# Large model/scaler artifacts — loaded from GCS at runtime
+Artifacts/Model/
+Artifacts/Scaler/
+Artifacts/preprocessed/
+Artifacts/Fault_injected_data/
+Artifacts/Data_split/
+Artifacts/raw/
+Artifacts/training_datasets/
+Artifacts/model_validations/
+
+# Research notebooks — not needed in production
+NoteBook/
+
+# Local test data
+testing_datasets/
+
+# Logs — generated at runtime
+logs/
+
+# MLflow local database
+mlflow.db
+
+# DVC local storage
+dvc_storage/
+.dvc/
+
+# Environment files
+.env
+
+# Documentation / guide files (list explicitly — do NOT use *.txt, it would block requirements.txt)
+midway_project_summary.txt
+present.txt
+project_feed_claud.txt
+my_manual_work_feed.txt
+my_feed_groundProject_and_GCP.txt
+*.md
+
+# IDE / OS
+.vscode/
+.idea/
+*.DS_Store
+Thumbs.db

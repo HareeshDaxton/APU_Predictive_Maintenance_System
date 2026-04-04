@@ -1,10 +1,11 @@
 import os
 import sys
+import json
 import yaml
 import joblib
 import numpy as np
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
 from Utils.Logging.logger import logging
@@ -53,6 +54,13 @@ class InferencePipeline:
 
         # Output directory for predictions & metrics
         self.output_dir  = "Artifacts/model_validations"
+
+        # Baseline stats for drift detection
+        # In GCP mode this file is downloaded to /tmp/ by app.py at startup
+        self.baseline_stats_path = os.environ.get(
+            'BASELINE_STATS_PATH',
+            'Artifacts/baseline_stats.json'
+        )
 
     # ------------------------------------------------------------------ #
     #  Internal helpers                                                    #
@@ -185,11 +193,10 @@ class InferencePipeline:
         try:
             logging.info("Applying saved StandardScaler...")
 
-            # If anomaly_score is missing (input has no fault injection),
-            # add it as 0 — neutral value meaning "no anomaly detected".
-            # The scaler was fitted on training data that included this column.
+            # If anomaly_score is missing, inject it as 0.0 BEFORE building
+            # feature_cols — so column order matches what scaler was fitted on.
             if 'anomaly_score' not in df.columns:
-                logging.info("anomaly_score not found in input — defaulting to 0 (no anomaly).")
+                logging.info("anomaly_score not found — defaulting to 0.0.")
                 df['anomaly_score'] = 0.0
 
             # Dynamically identify optional fault columns to exclude
@@ -199,7 +206,17 @@ class InferencePipeline:
             ]
             exclude = self.EXCLUDE_FROM_SCALING + extra_exclude
 
-            feature_cols = [c for c in df.columns if c not in exclude]
+            # Use scaler's original fitted column order if available.
+            # This prevents 'feature names must be in same order' errors
+            # when anomaly_score or other columns appear at different positions.
+            if hasattr(scaler, 'feature_names_in_'):
+                feature_cols = list(scaler.feature_names_in_)
+                for col in feature_cols:
+                    if col not in df.columns:
+                        logging.warning(f"Scaler expected '{col}' — not in input, defaulting to 0.0")
+                        df[col] = 0.0
+            else:
+                feature_cols = [c for c in df.columns if c not in exclude]
 
             df[feature_cols] = scaler.transform(df[feature_cols])
             logging.info("Scaler applied.")
@@ -368,7 +385,14 @@ class InferencePipeline:
                 predictions_df['predicted_RUL']
             )
 
-            # 13. Save everything
+            # 13. Feature drift detection
+            drift_report = self.check_feature_drift(df, input_csv_path)
+            if drift_report.get('drift_detected'):
+                logging.warning(
+                    f"DRIFT DETECTED in sensors: {drift_report.get('drifted_sensors')}"
+                )
+
+            # 14. Save everything
             self._save_outputs(predictions_df, metrics_df, overall_metrics)
 
             logging.info("Inference pipeline completed successfully.")
@@ -377,3 +401,85 @@ class InferencePipeline:
         except Exception as e:
             logging.error("Error in inference pipeline.")
             raise CustomException(f"Inference pipeline failed: {e}", sys)
+
+    # ------------------------------------------------------------------ #
+    #  Feature Drift Detection                                             #
+    # ------------------------------------------------------------------ #
+
+    def check_feature_drift(
+        self, df: pd.DataFrame, filename: str = 'unknown'
+    ) -> dict:
+        """
+        Detect feature drift by comparing the rolling mean of each sensor
+        in the uploaded file against the training baseline statistics.
+
+        Uses a 20-cycle rolling mean per engine per sensor to capture
+        temporal drift (more robust than raw point comparison for time-series).
+
+        Returns a drift report dict:
+        {
+            "drift_detected": bool,
+            "drifted_sensors": ["sensor_2", ...],
+            "details": {"sensor_2": {"input_mean": ..., "baseline_mean": ...,
+                                     "baseline_std": ..., "z_score": ...}},
+            "timestamp": "ISO string",
+            "filename": "..."
+        }
+        """
+        report = {
+            'drift_detected':  False,
+            'drifted_sensors': [],
+            'details':         {},
+            'timestamp':       datetime.now(timezone.utc).isoformat(),
+            'filename':        os.path.basename(filename)
+        }
+
+        # Load baseline stats (gracefully skip if not found)
+        if not os.path.exists(self.baseline_stats_path):
+            logging.debug(
+                f'Baseline stats not found at {self.baseline_stats_path}. '
+                'Skipping drift detection.'
+            )
+            return report
+
+        try:
+            with open(self.baseline_stats_path, 'r', encoding='utf-8') as f:
+                baseline = json.load(f)
+        except Exception as e:
+            logging.warning(f'Could not load baseline stats: {e}. Skipping drift check.')
+            return report
+
+        z_threshold = 2.0
+
+        for sensor in self.SENSOR_COLUMNS:
+            if sensor not in df.columns or sensor not in baseline:
+                continue
+
+            # 20-cycle rolling mean per engine (captures temporal drift)
+            rolling_means = (
+                df.groupby('engine_id')[sensor]
+                .transform(lambda x: x.rolling(window=20, min_periods=1).mean())
+            )
+            input_mean     = float(rolling_means.mean())
+            baseline_mean  = float(baseline[sensor]['mean'])
+            baseline_std   = float(baseline[sensor]['std'])
+
+            if baseline_std < 1e-9:
+                continue  # avoid divide-by-zero for constant sensors
+
+            z_score = abs(input_mean - baseline_mean) / baseline_std
+
+            report['details'][sensor] = {
+                'input_mean':    round(input_mean, 4),
+                'baseline_mean': round(baseline_mean, 4),
+                'baseline_std':  round(baseline_std, 4),
+                'z_score':       round(z_score, 3)
+            }
+
+            if z_score > z_threshold:
+                report['drifted_sensors'].append(sensor)
+
+        if report['drifted_sensors']:
+            report['drift_detected'] = True
+
+        return report

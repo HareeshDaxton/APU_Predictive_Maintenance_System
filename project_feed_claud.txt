@@ -1,0 +1,908 @@
+================================================================================
+  APU PREDICTIVE MAINTENANCE — COMPLETE IMPLEMENTATION GUIDE
+  FOR: Hareesh (Developer) + Antigravity AI Assistant (Claude Sonnet 4.6)
+  PURPOSE: Step-by-step instructions for what HAREESH does manually
+           and what ANTIGRAVITY (AI) does in code — Phase 1 through Phase 5
+  WRITTEN BY: Claude (Anthropic) — based on full project context
+  DATE: 2026-04-03
+================================================================================
+
+NOTE TO ANTIGRAVITY (AI ASSISTANT):
+  You are Claude Sonnet 4.6 running inside Antigravity.
+  The developer's name is Hareesh.
+  This file is the COMPLETE guide to what needs to be built next.
+  The project (APU Predictive Maintenance System) is already built
+  through the inference pipeline and APUWATCH frontend.
+  Everything described below is NEW work that needs to be added.
+  Read this entire file before writing a single line of code.
+  The project root is: E:\APU_Predictive_Maintenance\
+  Virtual env: .APU_venv\Scripts\activate (Windows)
+  All paths in config/config.yaml are relative to the project root.
+  The trained model expects EXACTLY 69 features. Do not change this.
+
+================================================================================
+  CRITICAL UNDERSTANDING — READ THIS FIRST
+================================================================================
+
+The project has 5 phases. Here is the golden rule:
+
+  ALL 5 PHASES MUST BE CODED BEFORE DEPLOYMENT.
+  Phases 4 and 5 will only ACTIVATE after deployment when real users
+  upload data. But the code must exist before you deploy.
+
+  PHASE 1 → Harden local project (Dockerfile, tests, MLflow, README)
+  PHASE 2 → CI/CD pipeline (GitHub Actions)
+  PHASE 3 → GCP Deployment (Cloud Run, GCS, Cloud SQL)
+  PHASE 4 → Data collection, retraining, model versioning (coded now, runs later)
+  PHASE 5 → Monitoring and drift detection (coded now, activates after deployment)
+
+  Think of Phase 4 and 5 as sleeping code. Once the app is live and
+  users start uploading CSVs, Phase 4 and 5 wake up automatically.
+
+================================================================================
+  PHASE 1 — FINALIZE AND HARDEN THE LOCAL PROJECT
+  Status: NOT DONE
+================================================================================
+
+WHAT THIS PHASE IS:
+  Clean up and complete everything locally before touching GCP.
+  This is the foundation. If Phase 1 is weak, everything else breaks.
+
+------------------------------------------------------------------------
+TASK 1.1 — DOCKERFILE
+------------------------------------------------------------------------
+
+WHO DOES IT: Antigravity writes it. Hareesh reviews it.
+
+WHAT TO BUILD:
+  Create the file: Dockerfile (in the project root, currently empty)
+
+  The Dockerfile must:
+  - Use Python 3.9+ as the base image (use python:3.9-slim for small size)
+  - Set working directory to /app
+  - COPY requirements.txt first (for Docker layer caching)
+  - RUN pip install -r requirements.txt
+  - COPY all source files (src/, entrypoint/, frontend/, config/, Utils/)
+  - Do NOT copy Artifacts/Model/ or Artifacts/Scaler/ into the image
+    (model and scaler will be downloaded from GCS at runtime — explained in Phase 3)
+  - Expose port 8080 (GCP Cloud Run requires 8080, not 5000)
+  - Change frontend/app.py to use port 8080 instead of 5000
+  - CMD should run: python frontend/app.py
+
+  IMPORTANT: The model .pkl and scaler .pkl must NOT be baked into
+  the Docker image. They will be fetched from Google Cloud Storage
+  at app startup. This allows model version swaps without rebuilding
+  the container.
+
+HAREESH DOES:
+  - Review the Dockerfile after Antigravity writes it
+  - Run: docker build -t apu-app . (to test it builds successfully)
+  - Run: docker run -p 8080:8080 apu-app (to test it runs locally)
+
+------------------------------------------------------------------------
+TASK 1.2 — MLFLOW INTEGRATION IN TRAINING PIPELINE
+------------------------------------------------------------------------
+
+WHO DOES IT: Antigravity writes the code changes.
+
+WHAT TO BUILD:
+  Currently entrypoint/training.py and src/Pipelines/trainig_pipeline.py
+  do NOT log to MLflow. Only the notebooks use MLflow.
+  This must be fixed now because in Phase 4, we need MLflow to compare
+  old vs new model versions automatically.
+
+  Add to src/Pipelines/trainig_pipeline.py:
+
+    import mlflow
+    import mlflow.lightgbm
+
+    with mlflow.start_run(run_name="APU_LightGBM_v{version}"):
+        mlflow.log_params({
+            "n_estimators": config.model.n_estimators,
+            "learning_rate": config.model.learning_rate,
+            "num_leaves": config.model.num_leaves,
+            "max_depth": config.model.max_depth,
+            "min_child_samples": config.model.min_child_samples,
+        })
+        mlflow.log_metrics({
+            "MSE": mse,
+            "MAE": mae,
+            "RMSE": rmse,
+            "R2": r2
+        })
+        mlflow.lightgbm.log_model(model, artifact_path="model")
+        mlflow.set_tag("model_stage", "Staging")
+
+  Also log: training data path, number of training rows, number of features,
+  scaler path, and the Git commit SHA (use subprocess to get it).
+
+  Save baseline statistics during training for drift detection later:
+  After training, compute mean and std for each of the 14 active sensors
+  on the TRAINING DATA and save as:
+    Artifacts/baseline_stats.json
+  Format: {"sensor_2": {"mean": 123.4, "std": 5.6}, "sensor_3": {...}, ...}
+  This file will be uploaded to GCS in Phase 3 and used in Phase 5.
+
+HAREESH DOES:
+  - Run: python entrypoint/training.py
+  - Open MLflow UI: mlflow ui
+  - Verify the run appears at http://localhost:5000 with all params/metrics
+
+------------------------------------------------------------------------
+TASK 1.3 — UNIT TESTS WITH PYTEST
+------------------------------------------------------------------------
+
+WHO DOES IT: Antigravity writes all tests.
+
+WHAT TO BUILD:
+  Create folder: tests/
+  Create file: tests/__init__.py (empty)
+  Create file: tests/test_inference_pipeline.py
+
+  Write the following tests:
+
+  TEST 1 — Feature count is exactly 69:
+    Load the scaler, run a sample CSV through the inference pipeline,
+    assert that X.shape[1] == 69 before calling model.predict(X)
+
+  TEST 2 — anomaly_score injection:
+    Create a sample CSV without the anomaly_score column,
+    run it through the inference pipeline,
+    assert that anomaly_score=0.0 was correctly added
+
+  TEST 3 — Scaler is applied (transform only, never refit):
+    Run the same CSV twice through the pipeline,
+    assert that predictions are identical (deterministic)
+
+  TEST 4 — Output report structure:
+    Run inference on a small test CSV,
+    assert the output CSV has the correct sections:
+    "SECTION 1: CYCLE-LEVEL PREDICTIONS" with columns
+    engine_id, cycle, true_RUL, predicted_RUL
+    and "SECTION 2: ENGINE METRICS" with columns
+    engine_id, num_cycles, MSE, MAE, RMSE, R2
+
+  TEST 5 — Flask API endpoint:
+    Use Flask test client to POST a CSV file to /predict,
+    assert response status is 200,
+    assert response JSON has keys: success, total_rows, total_engines,
+    overall_metrics, per_engine_metrics, predictions
+
+  Create file: tests/test_fault_injection.py
+
+  TEST 6 — Fault injection balance:
+    Run fault injection on a small sample,
+    assert that all 6 fault labels have equal row counts
+
+  TEST 7 — No NaN values after injection:
+    Assert that the fault-injected dataset has zero NaN values
+
+  Run all tests with: pytest tests/ -v
+
+HAREESH DOES:
+  - Run: pytest tests/ -v
+  - All tests must pass before moving to Phase 2
+  - Fix any failures with Antigravity's help
+
+------------------------------------------------------------------------
+TASK 1.4 — README.md
+------------------------------------------------------------------------
+
+WHO DOES IT: Antigravity writes it.
+
+WHAT TO BUILD:
+  Create a complete README.md in the project root covering:
+  - Project title and one-paragraph description
+  - Architecture diagram (reference to the image)
+  - Setup instructions (Python version, venv, pip install)
+  - How to run each step (fault injection, split, FE, training, inference)
+  - How to run the frontend
+  - How to run tests
+  - Folder structure overview
+  - Input CSV format requirements
+  - Output report format explanation
+  - MLflow UI instructions
+  - License section
+
+================================================================================
+  PHASE 2 — CI/CD PIPELINE WITH GITHUB ACTIONS
+  Status: NOT DONE
+================================================================================
+
+WHAT THIS PHASE IS:
+  Every time Hareesh pushes code to GitHub, this pipeline automatically:
+  1. Runs all pytest tests
+  2. If tests pass → builds a Docker image
+  3. Pushes the Docker image to GCP Artifact Registry
+  4. Optionally deploys to Cloud Run
+
+------------------------------------------------------------------------
+TASK 2.1 — GITHUB ACTIONS WORKFLOW FILE
+------------------------------------------------------------------------
+
+WHO DOES IT: Antigravity writes it. Hareesh sets up the GCP credentials.
+
+WHAT TO BUILD:
+  Create file: .github/workflows/deploy.yml
+
+  The workflow must have these jobs in order:
+
+  JOB 1 — test:
+    runs-on: ubuntu-latest
+    Steps:
+    - Checkout code
+    - Set up Python 3.9
+    - Install dependencies: pip install -r requirements.txt
+    - Run: pytest tests/ -v
+    - If any test fails, the workflow stops here. Nothing deploys.
+
+  JOB 2 — build-and-push (only runs if test job passes):
+    runs-on: ubuntu-latest
+    Steps:
+    - Checkout code
+    - Authenticate to GCP using google-github-actions/auth
+      (uses a GCP service account key stored as GitHub Secret)
+    - Set up gcloud CLI
+    - Configure Docker for Artifact Registry:
+      gcloud auth configure-docker [REGION]-docker.pkg.dev
+    - Build Docker image:
+      docker build -t [REGION]-docker.pkg.dev/[PROJECT_ID]/apu-repo/apu-app:$GITHUB_SHA .
+    - Push the image to Artifact Registry
+
+  JOB 3 — deploy (only runs if build-and-push passes):
+    Steps:
+    - Deploy to Cloud Run:
+      gcloud run deploy apu-app
+        --image [REGION]-docker.pkg.dev/[PROJECT_ID]/apu-repo/apu-app:$GITHUB_SHA
+        --platform managed
+        --region [REGION]
+        --allow-unauthenticated
+        --port 8080
+        --set-env-vars GCS_MODEL_BUCKET=apu-model-artifacts,GCS_DATA_BUCKET=apu-incoming-data
+
+HAREESH DOES (manual GCP setup — Antigravity cannot do this):
+  - Create a GCP Project in Google Cloud Console
+  - Enable these APIs: Cloud Run, Artifact Registry, Cloud Storage,
+    Cloud SQL, Secret Manager, Cloud Scheduler, Cloud Build
+  - Create a Service Account with these roles:
+    Cloud Run Admin, Artifact Registry Writer, Storage Admin,
+    Cloud SQL Client, Secret Manager Accessor
+  - Download the Service Account JSON key
+  - Go to GitHub repo → Settings → Secrets and variables → Actions
+  - Add secret: GCP_SA_KEY = (paste the entire JSON key content)
+  - Add secret: GCP_PROJECT_ID = your project ID
+  - Create Artifact Registry repository named "apu-repo" in GCP Console
+
+------------------------------------------------------------------------
+TASK 2.2 — .DOCKERIGNORE FILE
+------------------------------------------------------------------------
+
+WHO DOES IT: Antigravity writes it.
+
+WHAT TO BUILD:
+  Create file: .dockerignore
+  Must exclude: .APU_venv/, .git/, __pycache__/, *.pyc,
+  Artifacts/Model/, Artifacts/Scaler/, Artifacts/preprocessed/,
+  logs/, mlflow.db, NoteBook/, testing_datasets/, .env
+
+================================================================================
+  PHASE 3 — GCP DEPLOYMENT
+  Status: NOT DONE — requires HAREESH to set up GCP manually first
+================================================================================
+
+WHAT THIS PHASE IS:
+  Deploy the containerized app to Google Cloud Platform.
+  The app runs on Cloud Run (serverless). Model/scaler are stored in GCS.
+  Predictions are stored in Cloud SQL. Secrets are in Secret Manager.
+
+------------------------------------------------------------------------
+TASK 3.1 — MODIFY app.py FOR GCP
+------------------------------------------------------------------------
+
+WHO DOES IT: Antigravity writes code changes.
+
+WHAT TO BUILD:
+  Modify frontend/app.py with these changes:
+
+  CHANGE 1 — Port:
+    Change port from 5000 to 8080
+    host='0.0.0.0' (required for Cloud Run)
+
+  CHANGE 2 — Load model and scaler from GCS at startup:
+    from google.cloud import storage
+    import tempfile, os
+
+    def download_from_gcs(bucket_name, blob_name, local_path):
+        client = storage.Client()
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(blob_name)
+        blob.download_to_filename(local_path)
+
+    GCS_MODEL_BUCKET = os.environ.get("GCS_MODEL_BUCKET", "apu-model-artifacts")
+    MODEL_LOCAL = "/tmp/model_LGBM.pkl"
+    SCALER_LOCAL = "/tmp/scaler.pkl"
+    BASELINE_LOCAL = "/tmp/baseline_stats.json"
+
+    # At app startup (outside of routes):
+    download_from_gcs(GCS_MODEL_BUCKET, "model_LGBM.pkl", MODEL_LOCAL)
+    download_from_gcs(GCS_MODEL_BUCKET, "scaler.pkl", SCALER_LOCAL)
+    download_from_gcs(GCS_MODEL_BUCKET, "baseline_stats.json", BASELINE_LOCAL)
+
+  CHANGE 3 — Save every uploaded CSV to GCS:
+    GCS_DATA_BUCKET = os.environ.get("GCS_DATA_BUCKET", "apu-incoming-data")
+
+    def save_upload_to_gcs(file_content, filename):
+        from datetime import datetime
+        client = storage.Client()
+        bucket = client.bucket(GCS_DATA_BUCKET)
+        timestamp = datetime.utcnow().strftime("%Y-%m-%d_%H-%M-%S")
+        blob_name = f"uploads/{timestamp}_{filename}"
+        blob = bucket.blob(blob_name)
+        blob.upload_from_string(file_content)
+
+    # Call this inside the /predict route after receiving the CSV:
+    save_upload_to_gcs(file.read(), file.filename)
+
+  CHANGE 4 — Write predictions to Cloud SQL:
+    import psycopg2, os, json
+    from google.cloud import secretmanager
+
+    def get_db_connection():
+        client = secretmanager.SecretManagerServiceClient()
+        secret = client.access_secret_version(
+            request={"name": "projects/[PROJECT_ID]/secrets/db-password/versions/latest"}
+        )
+        password = secret.payload.data.decode("UTF-8")
+        return psycopg2.connect(
+            host=os.environ.get("DB_HOST"),
+            database="apu_predictions",
+            user="apu_user",
+            password=password
+        )
+
+    def save_predictions_to_db(predictions_df, model_version, filename):
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        for _, row in predictions_df.iterrows():
+            cursor.execute("""
+                INSERT INTO predictions
+                (engine_id, cycle, predicted_rul, true_rul, timestamp, model_version, filename)
+                VALUES (%s, %s, %s, %s, NOW(), %s, %s)
+            """, (row['engine_id'], row['cycle'], row['predicted_RUL'],
+                  row['true_RUL'], model_version, filename))
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+------------------------------------------------------------------------
+TASK 3.2 — CLOUD SQL DATABASE SCHEMA
+------------------------------------------------------------------------
+
+WHO DOES IT: Antigravity writes the SQL. Hareesh runs it in GCP Console.
+
+WHAT TO BUILD:
+  Create file: infra/schema.sql
+
+  CREATE TABLE predictions (
+      id SERIAL PRIMARY KEY,
+      engine_id INTEGER NOT NULL,
+      cycle INTEGER NOT NULL,
+      predicted_rul FLOAT NOT NULL,
+      true_rul FLOAT NOT NULL,
+      timestamp TIMESTAMPTZ DEFAULT NOW(),
+      model_version VARCHAR(50),
+      filename VARCHAR(255)
+  );
+
+  CREATE TABLE drift_reports (
+      id SERIAL PRIMARY KEY,
+      timestamp TIMESTAMPTZ DEFAULT NOW(),
+      filename VARCHAR(255),
+      drifted_sensors TEXT,
+      drift_details JSONB,
+      prediction_drift_flag BOOLEAN,
+      model_version VARCHAR(50)
+  );
+
+  CREATE INDEX idx_predictions_timestamp ON predictions(timestamp);
+  CREATE INDEX idx_predictions_engine ON predictions(engine_id);
+  CREATE INDEX idx_drift_timestamp ON drift_reports(timestamp);
+
+HAREESH DOES:
+  - Create Cloud SQL PostgreSQL instance in GCP Console
+  - Create database named "apu_predictions"
+  - Run the schema.sql script
+  - Add DB connection details to Secret Manager
+  - Set DB_HOST environment variable in Cloud Run service
+
+------------------------------------------------------------------------
+TASK 3.3 — GCS BUCKET SETUP AND INITIAL UPLOAD
+------------------------------------------------------------------------
+
+HAREESH DOES (manual, one-time):
+  - Create GCS bucket: apu-model-artifacts
+  - Create GCS bucket: apu-incoming-data
+  - Upload these files to apu-model-artifacts bucket:
+      model_LGBM.pkl  →  gs://apu-model-artifacts/model_LGBM.pkl
+      scaler.pkl      →  gs://apu-model-artifacts/scaler.pkl
+      baseline_stats.json → gs://apu-model-artifacts/baseline_stats.json
+  These are loaded by the Flask app at every cold start.
+
+================================================================================
+  PHASE 4 — DATA COLLECTION, RETRAINING, AND MODEL VERSIONING
+  Status: NOT DONE — code written now, activates after deployment
+================================================================================
+
+WHAT THIS PHASE IS:
+  This is the MLOps core. Once the app is live, every CSV uploaded by
+  users gets saved to GCS. Weekly, a Cloud Scheduler job triggers
+  retraining using all accumulated data. New model versions are compared
+  against the current production model using R². Better model wins.
+
+  NOTE: ALL CODE IN THIS PHASE IS WRITTEN NOW (locally), but it will
+  only execute automatically AFTER the app is deployed and users start
+  uploading data.
+
+------------------------------------------------------------------------
+TASK 4.1 — RETRAINING PIPELINE SCRIPT
+------------------------------------------------------------------------
+
+WHO DOES IT: Antigravity writes it entirely.
+
+WHAT TO BUILD:
+  Create file: entrypoint/retrain.py
+
+  This script is the heart of Phase 4. It does the following steps:
+
+  STEP 1 — Pull all uploaded CSVs from GCS:
+    from google.cloud import storage
+    client = storage.Client()
+    bucket = client.bucket("apu-incoming-data")
+    blobs = bucket.list_blobs(prefix="uploads/")
+    new_data_frames = []
+    for blob in blobs:
+        content = blob.download_as_text()
+        df = pd.read_csv(io.StringIO(content))
+        new_data_frames.append(df)
+    new_data = pd.concat(new_data_frames, ignore_index=True)
+
+  STEP 2 — Load original training data from GCS:
+    Load: gs://apu-model-artifacts/train_FD002.csv (the original NASA data)
+    Concatenate with new_data to create combined_data
+
+  STEP 3 — Run fault injection on combined data:
+    Call the existing fault injection module on combined_data
+    This ensures new real-world data also gets fault-augmented
+
+  STEP 4 — Run feature engineering:
+    Call the existing FeatureEngineering pipeline on the combined data
+    IMPORTANT: Fit a NEW StandardScaler on the combined training data
+    Save the new scaler as scaler_v{N+1}.pkl
+
+  STEP 5 — Train new LightGBM model:
+    Call the existing TrainingPipeline
+    Log everything to MLflow with a new run name "APU_Retrain_v{N+1}"
+    Save as model_v{N+1}.pkl
+
+  STEP 6 — Compare new model vs current production model:
+    Load the current production model from GCS
+    Run BOTH models on the original test dataset (test_dataset.csv)
+    Compare R² scores:
+      if new_r2 > current_r2:
+          promote_new_model()
+      else:
+          archive_new_model()
+          log "New model did not improve. Keeping current production model."
+
+  STEP 7 — Promote if better:
+    def promote_new_model():
+        Upload model_v{N+1}.pkl to gs://apu-model-artifacts/model_LGBM.pkl
+        Upload scaler_v{N+1}.pkl to gs://apu-model-artifacts/scaler.pkl
+        Upload new baseline_stats.json to gs://apu-model-artifacts/baseline_stats.json
+        Update MLflow model stage to "Production" for new model
+        Set old model stage to "Archived"
+        Log promotion event to Cloud SQL
+
+  FULL ENTRY POINT at bottom of retrain.py:
+    if __name__ == "__main__":
+        run_retraining_pipeline()
+
+  The script must handle these edge cases:
+  - No new data uploaded yet → skip retraining, log message
+  - New data has wrong columns → skip that file, log warning
+  - Model training fails → keep current production model, send alert
+
+------------------------------------------------------------------------
+TASK 4.2 — DOCKERFILE FOR RETRAINING JOB
+------------------------------------------------------------------------
+
+WHO DOES IT: Antigravity writes it.
+
+WHAT TO BUILD:
+  Create file: Dockerfile.retrain
+
+  This is a SEPARATE Docker container from the main app container.
+  It is only used for the weekly retraining job.
+
+  Base: python:3.9-slim
+  COPY: src/, entrypoint/retrain.py, config/, requirements.txt
+  RUN: pip install -r requirements.txt
+  CMD: ["python", "entrypoint/retrain.py"]
+
+  This image will be pushed to Artifact Registry as "apu-retrain"
+  and triggered by Cloud Scheduler as a Cloud Run Job.
+
+------------------------------------------------------------------------
+TASK 4.3 — CLOUD SCHEDULER SETUP
+------------------------------------------------------------------------
+
+WHO DOES IT: Antigravity writes the gcloud command. Hareesh runs it.
+
+WHAT TO BUILD:
+  Create file: infra/setup_scheduler.sh
+
+  # Create the Cloud Run Job for retraining
+  gcloud run jobs create apu-retrain-job \
+    --image [REGION]-docker.pkg.dev/[PROJECT_ID]/apu-repo/apu-retrain:latest \
+    --region [REGION] \
+    --service-account [SERVICE_ACCOUNT_EMAIL]
+
+  # Create Cloud Scheduler to trigger every Sunday at midnight
+  gcloud scheduler jobs create http apu-weekly-retrain \
+    --location [REGION] \
+    --schedule "0 0 * * 0" \
+    --uri "https://[REGION]-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/[PROJECT_ID]/jobs/apu-retrain-job:run" \
+    --message-body "{}" \
+    --oauth-service-account-email [SERVICE_ACCOUNT_EMAIL] \
+    --time-zone "UTC"
+
+  NOTE ON AIRFLOW:
+  We are NOT using Apache Airflow for this project.
+  Airflow is designed for complex DAGs with 10+ dependent steps,
+  retry logic across many services, and teams needing a full UI.
+  Our retraining is a single Python script (retrain.py).
+  Cloud Scheduler + Cloud Run Job handles this perfectly and costs
+  near zero (only billed for the minutes the retraining job runs).
+  Airflow would require a always-on VM/cluster costing $50-200/month.
+  Cloud Scheduler is the right tool here.
+
+------------------------------------------------------------------------
+TASK 4.4 — DVC REMOTE ON GCS
+------------------------------------------------------------------------
+
+WHO DOES IT: Hareesh runs commands. Antigravity explains the commands.
+
+WHAT TO DO:
+  Currently DVC uses local storage (dvc_storage/).
+  Change the DVC remote to GCS so datasets are versioned in the cloud.
+
+  Commands Hareesh runs:
+    dvc remote add -d gcs_remote gs://apu-incoming-data/dvc-store
+    dvc remote modify gcs_remote credentialpath [PATH_TO_SERVICE_ACCOUNT_KEY.json]
+    dvc push
+
+  After this, every time training data changes:
+    dvc add Artifacts/Data_split/Train_datasets/train_dataset.csv
+    git add .
+    git commit -m "Update training data v2"
+    dvc push
+
+  This gives Git-like versioning for datasets. You can always run
+  "dvc checkout" to restore any past version of the training data.
+
+================================================================================
+  PHASE 5 — MONITORING AND DRIFT DETECTION
+  Status: NOT DONE — code written now, activates after deployment
+================================================================================
+
+WHAT THIS PHASE IS:
+  Monitor the model's health in production. Detect when sensor data
+  patterns start drifting away from what the model was trained on.
+  Alert Hareesh when the model starts degrading.
+
+  CRITICAL NOTE ON DRIFT DETECTION METHOD:
+  This project uses TIME-SERIES sensor data (engine cycle sequences).
+  Standard drift detection methods (like population stability index or
+  simple column-level KS tests) are designed for IID (independent and
+  identically distributed) data — they do NOT account for temporal
+  autocorrelation in time series.
+
+  For time-series industrial sensor data, the industry-standard approach is:
+
+  METHOD 1 — ROLLING WINDOW STATISTICS (what we implement):
+    Compare the rolling mean and rolling std of each sensor over the
+    last N cycles against the training baseline statistics.
+    This is the simplest and most interpretable method for maintenance.
+    Threshold: if rolling_mean deviates > 2 std from training baseline,
+    flag as drifted.
+
+  METHOD 2 — ADWIN (Adaptive Windowing) — future enhancement:
+    ADWIN is designed specifically for streaming/time-series data.
+    It maintains a sliding window and automatically detects when the
+    statistical distribution of sensor readings changes.
+    Library: river (pip install river)
+    from river import drift
+    detector = drift.ADWIN()
+    — Use this when you need more sensitive drift detection later.
+
+  METHOD 3 — PAGE-HINKLEY TEST — future enhancement:
+    Designed for sequential/streaming data, detects gradual mean shifts.
+    Better than KS test for time-series because it respects temporal order.
+    Available in: river library and scikit-multiflow.
+
+  METHOD 4 — EVIDENTLY AI (what we add to retrain pipeline):
+    Evidently AI is an open-source library that generates full HTML
+    drift reports. It supports time-series-aware drift detection.
+    Install: pip install evidently
+    Use in retrain.py before training to generate a drift report:
+    from evidently.report import Report
+    from evidently.metric_preset import DataDriftPreset
+    report = Report(metrics=[DataDriftPreset()])
+    report.run(reference_data=train_df, current_data=new_data_df)
+    report.save_html("drift_report.html")
+    Upload drift_report.html to GCS for Hareesh to review.
+
+  FOR THIS PROJECT, WE IMPLEMENT METHOD 1 NOW AND NOTE METHOD 4
+  AS THE UPGRADE PATH.
+
+------------------------------------------------------------------------
+TASK 5.1 — FEATURE DRIFT DETECTION IN INFERENCE PIPELINE
+------------------------------------------------------------------------
+
+WHO DOES IT: Antigravity writes the code addition.
+
+WHAT TO BUILD:
+  Modify src/Pipelines/inference_pipeline.py
+
+  Add a method: check_feature_drift(input_df)
+
+  The method must:
+  1. Load baseline_stats.json from the local temp path
+     (it was downloaded from GCS at app startup in Phase 3)
+  2. For each of the 14 active sensors in input_df:
+     compute the mean and std of that sensor in the uploaded file
+  3. Compare against baseline:
+     z_score = abs(input_mean - baseline_mean) / baseline_std
+     if z_score > 2.0:
+         flag this sensor as drifted
+  4. Return a drift report dict:
+     {
+         "drift_detected": True/False,
+         "drifted_sensors": ["sensor_2", "sensor_9"],
+         "details": {
+             "sensor_2": {"input_mean": 1.23, "baseline_mean": 1.10,
+                          "baseline_std": 0.05, "z_score": 2.6},
+             ...
+         },
+         "timestamp": "2026-04-03T14:30:00Z",
+         "filename": "engine_data.csv"
+     }
+  5. Write the drift report to Cloud SQL drift_reports table
+  6. If drift_detected is True, log a WARNING message
+
+  IMPORTANT FOR TIME-SERIES DATA:
+  Because this is engine cycle time-series data, do not just compare
+  raw sensor values. Compare the ROLLING MEAN of each sensor
+  (computed over the last 20 cycles of each engine in the uploaded file)
+  against the training baseline mean. This captures temporal drift
+  more accurately than a single-value comparison.
+
+  Call check_feature_drift() at the END of the run() method,
+  after predictions are generated. Include the drift report in the
+  JSON response returned to the frontend.
+
+------------------------------------------------------------------------
+TASK 5.2 — PREDICTION DRIFT DETECTION
+------------------------------------------------------------------------
+
+WHO DOES IT: Antigravity writes it.
+
+WHAT TO BUILD:
+  Create file: src/monitoring/prediction_drift.py
+
+  This module queries Cloud SQL to detect if predicted RUL values
+  are shifting over time.
+
+  def check_prediction_drift():
+      Query last 4 weeks of predictions from Cloud SQL:
+        SELECT DATE_TRUNC('week', timestamp) as week,
+               PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY predicted_rul) as median_rul
+        FROM predictions
+        WHERE timestamp > NOW() - INTERVAL '4 weeks'
+        GROUP BY week
+        ORDER BY week;
+
+      Compute rolling 4-week average of median_rul
+      If current week median_rul < (4_week_avg * 0.80):
+          Return {"prediction_drift": True,
+                  "current_median": ...,
+                  "4_week_avg": ...,
+                  "drop_pct": ...}
+      Else:
+          Return {"prediction_drift": False}
+
+  Call this function in retrain.py before deciding whether to retrain.
+  If prediction drift is detected, always retrain regardless of schedule.
+
+------------------------------------------------------------------------
+TASK 5.3 — CLOUD MONITORING DASHBOARD AND ALERTS
+------------------------------------------------------------------------
+
+WHO DOES IT: Hareesh sets up in GCP Console. Antigravity writes the
+             custom metric logging code.
+
+WHAT ANTIGRAVITY BUILDS:
+  Add to inference_pipeline.py — log custom metrics to Cloud Monitoring:
+
+    from google.cloud import monitoring_v3
+    import time
+
+    def log_custom_metric(metric_name, value, project_id):
+        client = monitoring_v3.MetricServiceClient()
+        project_name = f"projects/{project_id}"
+        series = monitoring_v3.TimeSeries()
+        series.metric.type = f"custom.googleapis.com/apu/{metric_name}"
+        point = monitoring_v3.Point()
+        point.value.double_value = value
+        now = time.time()
+        point.interval.end_time.seconds = int(now)
+        series.points = [point]
+        client.create_time_series(
+            request={"name": project_name, "time_series": [series]}
+        )
+
+  Call this after every inference:
+    log_custom_metric("r2_score", r2_value, PROJECT_ID)
+    log_custom_metric("drift_detected", 1.0 if drift else 0.0, PROJECT_ID)
+    log_custom_metric("inference_row_count", total_rows, PROJECT_ID)
+
+WHAT HAREESH DOES IN GCP CONSOLE:
+  1. Go to Cloud Monitoring → Dashboards → Create Dashboard
+  2. Add these charts:
+     - Requests per minute (Cloud Run metric)
+     - Inference latency p50 and p95 (Cloud Run metric)
+     - Custom metric: custom.googleapis.com/apu/r2_score
+     - Custom metric: custom.googleapis.com/apu/drift_detected
+  3. Go to Alerting → Create Alert Policy:
+     Alert 1: If r2_score < 0.90 → Email Hareesh
+     Alert 2: If drift_detected > 0 → Email Hareesh
+     Alert 3: If Cloud Run error rate > 5% → Email Hareesh
+
+------------------------------------------------------------------------
+TASK 5.4 — EVIDENTLY AI DRIFT REPORT IN RETRAIN PIPELINE
+------------------------------------------------------------------------
+
+WHO DOES IT: Antigravity adds to retrain.py
+
+WHAT TO BUILD:
+  In entrypoint/retrain.py, BEFORE the training step, add:
+
+    pip install evidently (add to requirements.txt)
+
+    from evidently.report import Report
+    from evidently.metric_preset import DataDriftPreset
+    from evidently.pipeline.column_mapping import ColumnMapping
+
+    column_mapping = ColumnMapping(
+        target="RUL",
+        numerical_features=ACTIVE_SENSOR_COLUMNS  # the 14 sensors
+    )
+
+    drift_report = Report(metrics=[DataDriftPreset()])
+    drift_report.run(
+        reference_data=original_train_df[ACTIVE_SENSOR_COLUMNS + ["RUL"]],
+        current_data=new_data_df[ACTIVE_SENSOR_COLUMNS + ["RUL"]],
+        column_mapping=column_mapping
+    )
+    drift_report.save_html("/tmp/drift_report.html")
+
+    # Upload to GCS for review
+    upload_to_gcs("apu-model-artifacts", "/tmp/drift_report.html",
+                  f"drift_reports/report_{timestamp}.html")
+
+  This generates a full HTML report showing which sensors have drifted,
+  with statistical test results (KS test p-values, PSI scores) per sensor.
+  Hareesh can download this from GCS and open in a browser to review
+  before every model promotion decision.
+
+  NOTE: Evidently AI's DataDriftPreset uses the KS (Kolmogorov-Smirnov)
+  test by default for numerical features. For time-series engine data,
+  this gives a good first-pass view of distributional shift even though
+  KS test does not account for temporal autocorrelation. The rolling
+  window method in Task 5.1 handles the time-series-specific detection.
+
+================================================================================
+  SUMMARY: WHAT HAREESH DOES vs WHAT ANTIGRAVITY DOES
+================================================================================
+
+HAREESH (manual actions — cannot be done by AI):
+  Phase 1:
+    - Review Dockerfile, build and run locally to test
+    - Run pytest and fix test failures
+    - Review README.md
+  Phase 2:
+    - Create GCP project in Google Cloud Console
+    - Enable GCP APIs
+    - Create Service Account and download JSON key
+    - Add GCP_SA_KEY and GCP_PROJECT_ID to GitHub Secrets
+    - Create Artifact Registry repository in GCP Console
+  Phase 3:
+    - Create GCS buckets: apu-model-artifacts and apu-incoming-data
+    - Upload model_LGBM.pkl, scaler.pkl, baseline_stats.json to GCS
+    - Create Cloud SQL PostgreSQL instance
+    - Run infra/schema.sql to create tables
+    - Add DB credentials to Secret Manager
+    - Set environment variables in Cloud Run service config
+  Phase 4:
+    - Run infra/setup_scheduler.sh to create Cloud Scheduler job
+    - Run DVC commands to point remote to GCS
+    - Monitor first retraining run (check Cloud Run logs)
+  Phase 5:
+    - Set up Cloud Monitoring dashboard in GCP Console
+    - Create alerting policies (email alerts)
+    - Review drift reports in GCS bucket periodically
+
+ANTIGRAVITY (writes all code):
+  Phase 1: Dockerfile, MLflow integration, pytest tests, README.md
+  Phase 2: .github/workflows/deploy.yml, .dockerignore
+  Phase 3: GCS model loading in app.py, CSV auto-save to GCS,
+           Cloud SQL prediction logging, infra/schema.sql
+  Phase 4: entrypoint/retrain.py (full retraining pipeline),
+           Dockerfile.retrain, infra/setup_scheduler.sh
+  Phase 5: check_feature_drift() in inference_pipeline.py,
+           src/monitoring/prediction_drift.py,
+           custom metric logging to Cloud Monitoring,
+           Evidently AI drift report in retrain.py
+
+================================================================================
+  EXECUTION ORDER — DO THIS IN EXACTLY THIS SEQUENCE
+================================================================================
+
+  WEEK 1 (LOCAL):
+    1. Antigravity writes all code for Phase 1, 2, 3, 4, 5
+    2. Hareesh reviews and tests locally
+    3. All pytest tests pass
+    4. Docker builds and runs locally
+
+  WEEK 2 (GCP SETUP — HAREESH MANUAL):
+    5. Hareesh creates GCP project and enables APIs
+    6. Hareesh creates Service Account and GitHub Secrets
+    7. Hareesh creates GCS buckets and uploads model files
+    8. Hareesh creates Cloud SQL and runs schema
+
+  WEEK 2 (DEPLOY):
+    9. Hareesh pushes code to GitHub main branch
+    10. GitHub Actions triggers: tests → build → push → deploy
+    11. App is live on Cloud Run with HTTPS URL
+
+  WEEK 3+ (PRODUCTION):
+    12. Phase 4 wakes up — real CSVs get saved to GCS on every upload
+    13. Every Sunday midnight — Cloud Scheduler triggers retrain.py
+    14. Phase 5 wakes up — drift checks run on every inference
+    15. Cloud Monitoring shows live dashboard
+    16. Email alerts fire if model degrades
+
+================================================================================
+  KEY TECHNICAL CONSTRAINTS — NEVER VIOLATE THESE
+================================================================================
+
+  1. Model expects EXACTLY 69 features. Never change FE without retraining.
+  2. anomaly_score MUST be included in X before model.predict(). Never drop it.
+  3. StandardScaler must be TRANSFORM-ONLY at inference. Never refit on new data.
+  4. Always sort input CSV by (engine_id, cycle) before feature engineering.
+  5. Rolling features use window=5, min_periods=1. Keep this consistent.
+  6. Flask app must run on port 8080 for Cloud Run compatibility.
+  7. Never put secrets or API keys in environment variables directly.
+     Always use GCP Secret Manager.
+  8. Model and scaler .pkl files must NEVER be baked into the Docker image.
+     Always load from GCS at startup.
+  9. For drift detection on time-series data, use rolling window statistics
+     (20-cycle rolling mean per sensor) not raw point comparisons.
+  10. DVC tracks datasets. Git tracks code. MLflow tracks models. 
+      Never mix these responsibilities.
+
+================================================================================
+  END OF GUIDE
+  Feed this entire file to Antigravity before starting any coding session.
+  Hareesh and Antigravity should work through one phase at a time in order.
+================================================================================

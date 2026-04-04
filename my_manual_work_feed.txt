@@ -1,0 +1,1030 @@
+================================================================================
+  MY PERSONAL WORKFLOW — HAREESH'S MANUAL STEPS GUIDE
+  Project: APU Predictive Maintenance System
+  Written by: Claude (Anthropic)
+  This file tells ME (Hareesh) exactly what I need to do manually,
+  step by step, from scratch — before Antigravity starts, while
+  Antigravity is working, and after Antigravity finishes each phase.
+================================================================================
+
+IMPORTANT: Read this entire file once before starting anything.
+This is YOUR guide. Antigravity has its own guide (project_feed_claude.txt).
+Your job is manual setup, GCP configuration, running commands,
+and testing what Antigravity builds.
+Never skip a step. Do them in exact order.
+
+================================================================================
+  BEFORE ANYTHING — ONE TIME SETUP ON YOUR MACHINE
+  Do this once. Never again.
+================================================================================
+
+------------------------------------------------------------------------
+STEP 0.1 — INSTALL GOOGLE CLOUD CLI (gcloud) ON YOUR MACHINE
+------------------------------------------------------------------------
+
+WHY: gcloud is the command-line tool to talk to GCP from your computer.
+     You will use this to create buckets, deploy services, etc.
+
+HOW:
+  1. Open your browser and go to:
+     https://cloud.google.com/sdk/docs/install
+
+  2. Download the Windows installer (you are on Windows).
+     It will be a file named something like:
+     GoogleCloudSDKInstaller.exe
+
+  3. Run the installer. Click Next on everything.
+     When it asks to run "gcloud init" at the end — say YES.
+
+  4. A browser window will open. Sign in with your Google account.
+     This links your Google account to gcloud on your machine.
+
+  5. When it asks "Pick cloud project to use" — skip for now.
+     We will set this later.
+
+  6. Close and reopen your terminal (PowerShell or CMD).
+
+  7. Test it worked by running:
+     gcloud --version
+     You should see version numbers printed. If you see an error,
+     the installation failed — redo step 3.
+
+------------------------------------------------------------------------
+STEP 0.2 — INSTALL DOCKER DESKTOP ON YOUR MACHINE
+------------------------------------------------------------------------
+
+WHY: Docker packages your entire app into a container so it runs
+     the same way everywhere — on your machine and on GCP.
+
+HOW:
+  1. Go to: https://www.docker.com/products/docker-desktop/
+  2. Download Docker Desktop for Windows.
+  3. Run the installer. It will ask you to enable WSL2 — say YES.
+  4. Restart your computer when asked.
+  5. After restart, open Docker Desktop from Start Menu.
+     Wait for it to fully start (the whale icon in taskbar goes steady).
+  6. Open PowerShell and run:
+     docker --version
+     You should see something like: Docker version 24.x.x
+     If you see an error, Docker is not running — open Docker Desktop first.
+
+  IMPORTANT: Docker Desktop must be running in the background
+  every time you do anything with Docker. Keep it open.
+
+------------------------------------------------------------------------
+STEP 0.3 — INSTALL PYTHON AND VERIFY YOUR VIRTUAL ENV
+------------------------------------------------------------------------
+
+  You already have this. Just verify:
+  Open PowerShell, go to your project:
+    cd E:\APU_Predictive_Maintenance
+    .APU_venv\Scripts\activate
+    python --version    ← should show Python 3.9+
+    pip --version       ← should show pip version
+
+  If virtual env activation fails, run:
+    python -m venv .APU_venv
+  Then activate again.
+
+------------------------------------------------------------------------
+STEP 0.4 — CREATE A GITHUB ACCOUNT AND REPOSITORY
+------------------------------------------------------------------------
+
+WHY: Your code must be on GitHub for CI/CD to work.
+     GitHub Actions (the CI/CD tool) reads from your GitHub repo.
+
+HOW:
+  1. Go to https://github.com and create an account if you don't have one.
+
+  2. Click the "+" icon top right → New repository.
+     Name it: APU_Predictive_Maintenance
+     Set it to PRIVATE (your code stays private).
+     Do NOT initialize with README (you already have one locally).
+     Click "Create repository".
+
+  3. GitHub will show you commands. Copy the ones that say
+     "push an existing repository from the command line".
+     They look like:
+       git remote add origin https://github.com/YOUR_USERNAME/APU_Predictive_Maintenance.git
+       git branch -M main
+       git push -u origin main
+
+  4. In PowerShell at your project root:
+     cd E:\APU_Predictive_Maintenance
+     git init                         ← only if not already a git repo
+     git add .
+     git commit -m "Initial commit - full project before GCP deployment"
+     git remote add origin https://github.com/YOUR_USERNAME/APU_Predictive_Maintenance.git
+     git branch -M main
+     git push -u origin main
+
+  5. Refresh GitHub in browser. You should see all your project files there.
+
+------------------------------------------------------------------------
+STEP 0.5 — CREATE A GOOGLE CLOUD ACCOUNT
+------------------------------------------------------------------------
+
+WHY: GCP is where your app will live in production.
+
+HOW:
+  1. Go to: https://console.cloud.google.com
+  2. Sign in with your Google account.
+  3. GCP gives you $300 free credits for 90 days as a new user.
+     You MUST add a credit card to activate this.
+     You will NOT be charged unless you exceed the free credits.
+     Add your card when prompted.
+  4. You are now in the GCP Console. This is your cloud control panel.
+     Keep this browser tab open — you will use it a lot.
+
+================================================================================
+  PHASE 1 — WHAT I DO WHILE ANTIGRAVITY WRITES LOCAL CODE
+================================================================================
+
+------------------------------------------------------------------------
+WHAT ANTIGRAVITY IS DOING AT THIS POINT:
+  Writing Dockerfile, pytest tests, MLflow integration, README.md
+  This takes some time. While Antigravity codes, I do the below.
+------------------------------------------------------------------------
+
+STEP 1.1 — CREATE YOUR GCP PROJECT
+----------------------------------------------------------------------
+
+  1. In GCP Console (console.cloud.google.com):
+     Click the project dropdown at the top (it says "Select a project").
+     Click "New Project".
+     Project name: apu-predictive-maintenance
+     Click "Create".
+     Wait 30 seconds for it to create.
+
+  2. Click the project dropdown again.
+     Select "apu-predictive-maintenance".
+     You are now inside your project.
+     Look at the top bar — it should show "apu-predictive-maintenance".
+
+  3. Find your Project ID:
+     Click the project dropdown → your project is listed.
+     Below the project name you will see a Project ID like:
+     apu-predictive-maintenance-123456
+     WRITE THIS DOWN. You will need it many times.
+     It is different from the project name.
+
+  4. Point gcloud to this project:
+     Open PowerShell and run:
+       gcloud config set project YOUR_PROJECT_ID
+     Replace YOUR_PROJECT_ID with the actual ID you wrote down.
+     Example: gcloud config set project apu-predictive-maintenance-123456
+
+STEP 1.2 — ENABLE GCP APIS
+----------------------------------------------------------------------
+
+WHY: GCP services are OFF by default. You must turn on each one you need.
+
+  In PowerShell, run this ONE command (copy the whole thing):
+
+    gcloud services enable \
+      run.googleapis.com \
+      artifactregistry.googleapis.com \
+      storage.googleapis.com \
+      sqladmin.googleapis.com \
+      secretmanager.googleapis.com \
+      cloudscheduler.googleapis.com \
+      cloudbuild.googleapis.com \
+      monitoring.googleapis.com \
+      logging.googleapis.com
+
+  This enables: Cloud Run, Artifact Registry, Cloud Storage,
+  Cloud SQL, Secret Manager, Cloud Scheduler, Cloud Build,
+  Cloud Monitoring, Cloud Logging.
+
+  Wait about 1-2 minutes. You will see each service enabled.
+  If any fails, run the command again — sometimes it needs a retry.
+
+STEP 1.3 — CREATE A SERVICE ACCOUNT
+----------------------------------------------------------------------
+
+WHY: A service account is like a robot identity.
+     GitHub Actions will use it to push Docker images to GCP
+     and deploy your app. It needs permission to do those things.
+
+  In PowerShell, run these commands ONE BY ONE:
+
+  COMMAND 1 — Create the service account:
+    gcloud iam service-accounts create apu-deploy-sa \
+      --display-name="APU Deploy Service Account"
+
+  COMMAND 2 — Give it Cloud Run permission:
+    gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+      --member="serviceAccount:apu-deploy-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+      --role="roles/run.admin"
+
+  COMMAND 3 — Give it Artifact Registry permission:
+    gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+      --member="serviceAccount:apu-deploy-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+      --role="roles/artifactregistry.writer"
+
+  COMMAND 4 — Give it Storage permission:
+    gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+      --member="serviceAccount:apu-deploy-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+      --role="roles/storage.admin"
+
+  COMMAND 5 — Give it Cloud SQL permission:
+    gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+      --member="serviceAccount:apu-deploy-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+      --role="roles/cloudsql.client"
+
+  COMMAND 6 — Give it Secret Manager permission:
+    gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+      --member="serviceAccount:apu-deploy-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+      --role="roles/secretmanager.secretAccessor"
+
+  COMMAND 7 — Give it Service Account User permission (needed for deployments):
+    gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+      --member="serviceAccount:apu-deploy-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+      --role="roles/iam.serviceAccountUser"
+
+  Replace YOUR_PROJECT_ID with your actual project ID in every command.
+
+STEP 1.4 — DOWNLOAD THE SERVICE ACCOUNT KEY
+----------------------------------------------------------------------
+
+WHY: This JSON key file is what GitHub Actions uses to prove it
+     has permission to deploy to your GCP project.
+
+  COMMAND — Generate and download the key:
+    gcloud iam service-accounts keys create apu-sa-key.json \
+      --iam-account=apu-deploy-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com
+
+  This creates a file called apu-sa-key.json in your current directory.
+
+  VERY IMPORTANT SECURITY RULES:
+  - NEVER commit this file to GitHub.
+  - NEVER share this file with anyone.
+  - NEVER put it inside your project folder.
+  - Store it somewhere safe like Desktop or Documents.
+  - If you accidentally commit it — delete it from GitHub immediately
+    and create a new key.
+
+  Open the file in Notepad. It looks like a big JSON starting with:
+  { "type": "service_account", "project_id": "...", ... }
+  Select ALL the text (Ctrl+A) and copy it. You need it in the next step.
+
+STEP 1.5 — ADD SECRETS TO GITHUB
+----------------------------------------------------------------------
+
+WHY: GitHub Actions needs the GCP key to deploy.
+     We store it as a secret so it is never visible in the code.
+
+  1. Go to your GitHub repository in browser.
+  2. Click "Settings" tab (top of repo page).
+  3. In left sidebar, click "Secrets and variables" → "Actions".
+  4. Click "New repository secret".
+
+  ADD SECRET 1:
+    Name: GCP_SA_KEY
+    Value: Paste the entire content of apu-sa-key.json here
+    Click "Add secret".
+
+  ADD SECRET 2:
+    Name: GCP_PROJECT_ID
+    Value: your actual project ID (e.g. apu-predictive-maintenance-123456)
+    Click "Add secret".
+
+  ADD SECRET 3:
+    Name: GCP_REGION
+    Value: us-central1
+    (This is the GCP region. us-central1 is cheap and reliable.)
+    Click "Add secret".
+
+  You should now see 3 secrets listed. Good.
+
+STEP 1.6 — CREATE ARTIFACT REGISTRY REPOSITORY
+----------------------------------------------------------------------
+
+WHY: This is where your Docker images will be stored in GCP.
+     Think of it like DockerHub but inside your GCP project.
+
+  In PowerShell:
+    gcloud artifacts repositories create apu-repo \
+      --repository-format=docker \
+      --location=us-central1 \
+      --description="APU Predictive Maintenance Docker images"
+
+  Verify it was created:
+    gcloud artifacts repositories list --location=us-central1
+  You should see "apu-repo" listed.
+
+------------------------------------------------------------------------
+WHAT TO DO WHILE WAITING FOR ANTIGRAVITY TO FINISH PHASE 1:
+  - Complete all steps above (1.1 through 1.6)
+  - Keep Docker Desktop running
+  - Keep your virtual env activated in PowerShell
+------------------------------------------------------------------------
+
+STEP 1.7 — AFTER ANTIGRAVITY FINISHES PHASE 1 CODE
+----------------------------------------------------------------------
+
+  Once Antigravity has written the Dockerfile, tests, MLflow code,
+  and README.md, YOU need to test everything locally.
+
+  TEST 1 — Run all pytest tests:
+    cd E:\APU_Predictive_Maintenance
+    .APU_venv\Scripts\activate
+    pytest tests/ -v
+
+    What you should see:
+      tests/test_inference_pipeline.py::test_feature_count PASSED
+      tests/test_inference_pipeline.py::test_anomaly_score_injection PASSED
+      tests/test_inference_pipeline.py::test_scaler_deterministic PASSED
+      tests/test_inference_pipeline.py::test_output_report_structure PASSED
+      tests/test_inference_pipeline.py::test_flask_api_endpoint PASSED
+      tests/test_fault_injection.py::test_fault_balance PASSED
+      tests/test_fault_injection.py::test_no_nan_after_injection PASSED
+
+    If any test FAILS:
+      Read the error message carefully.
+      Tell Antigravity exactly what the error says.
+      Antigravity will fix the code.
+      Run pytest again until all pass.
+
+  TEST 2 — Build the Docker image locally:
+    Make sure Docker Desktop is running (whale icon in taskbar).
+    cd E:\APU_Predictive_Maintenance
+    docker build -t apu-app-test .
+
+    This will take 3-5 minutes the first time (downloading Python image).
+    You will see lots of output scrolling. At the end you should see:
+      Successfully built xxxxxxxxx
+      Successfully tagged apu-app-test:latest
+
+    If it fails, copy the error message and give it to Antigravity.
+
+  TEST 3 — Run the Docker image locally:
+    docker run -p 8080:8080 apu-app-test
+
+    Open browser and go to: http://localhost:8080
+    You should see your APUWATCH frontend.
+    NOTE: The model loading from GCS will fail locally (that is OK).
+    We are just checking that the container starts and the port works.
+
+    To stop it: Press Ctrl+C in the terminal.
+
+  TEST 4 — Check MLflow logging:
+    python entrypoint/training.py
+    mlflow ui
+    Open browser: http://localhost:5000
+    You should see a run logged with all hyperparameters and metrics.
+    If nothing appears, tell Antigravity.
+
+  Once ALL 4 tests pass, Phase 1 is complete.
+  Push the updated code to GitHub:
+    git add .
+    git commit -m "Phase 1 complete - Dockerfile, tests, MLflow, README"
+    git push origin main
+
+================================================================================
+  PHASE 2 — WHAT I DO WHILE ANTIGRAVITY WRITES CI/CD
+================================================================================
+
+------------------------------------------------------------------------
+WHAT ANTIGRAVITY IS DOING:
+  Writing .github/workflows/deploy.yml and .dockerignore
+  This is quick — maybe 15-20 minutes.
+------------------------------------------------------------------------
+
+STEP 2.1 — WHILE ANTIGRAVITY WRITES THE CI/CD FILE
+----------------------------------------------------------------------
+
+  Nothing to do right now. The GCP setup you did in Phase 1 is enough.
+  Just wait for Antigravity to finish.
+
+STEP 2.2 — AFTER ANTIGRAVITY FINISHES THE CI/CD FILE
+----------------------------------------------------------------------
+
+  Antigravity will create: .github/workflows/deploy.yml
+
+  Open this file and look for these 3 things — fill them in:
+    - YOUR_PROJECT_ID → replace with your actual project ID
+    - YOUR_REGION → replace with: us-central1
+    - YOUR_SERVICE_ACCOUNT_EMAIL → replace with:
+      apu-deploy-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com
+
+  Save the file.
+
+  Now push to GitHub to trigger the CI/CD pipeline for the first time:
+    git add .
+    git commit -m "Phase 2 - CI/CD pipeline added"
+    git push origin main
+
+STEP 2.3 — WATCH THE CI/CD PIPELINE RUN
+----------------------------------------------------------------------
+
+  1. Go to your GitHub repository in browser.
+  2. Click the "Actions" tab at the top.
+  3. You will see a workflow run starting. Click on it.
+  4. You will see 3 jobs: "test", "build-and-push", "deploy".
+  5. Click on "test" — you can watch the pytest tests running live.
+
+  What should happen:
+    test job → green checkmark (all tests pass)
+    build-and-push job → green checkmark (Docker image pushed to GCP)
+    deploy job → green checkmark (app deployed to Cloud Run)
+
+  This will take about 5-8 minutes total.
+
+  If ANY job shows a red X:
+    Click on the failed job.
+    Read the red error text carefully.
+    Copy the error and give it to Antigravity to fix.
+    After Antigravity fixes it, push again:
+      git add .
+      git commit -m "Fix CI/CD error"
+      git push origin main
+    The pipeline will automatically run again.
+
+STEP 2.4 — VERIFY THE APP IS DEPLOYED
+----------------------------------------------------------------------
+
+  After all 3 jobs are green:
+
+  1. Go to GCP Console → Cloud Run (search for it in top search bar).
+  2. You will see a service called "apu-app".
+  3. Click on it. You will see a URL at the top like:
+     https://apu-app-xxxxxxxxxx-uc.a.run.app
+  4. Open that URL in browser.
+  5. You should see APUWATCH frontend.
+     (The upload/inference won't work yet — we haven't set up
+      GCS buckets and database yet. That is Phase 3.)
+
+  WRITE DOWN THIS URL. This is your app's live address.
+
+================================================================================
+  PHASE 3 — WHAT I DO FOR GCP INFRASTRUCTURE SETUP
+================================================================================
+
+------------------------------------------------------------------------
+WHAT ANTIGRAVITY IS DOING:
+  Writing the GCS model loading code in app.py,
+  CSV auto-save code, Cloud SQL logging code,
+  and infra/schema.sql
+------------------------------------------------------------------------
+
+  This is the BIGGEST manual phase for you. Follow every step carefully.
+
+STEP 3.1 — CREATE GCS BUCKETS
+----------------------------------------------------------------------
+
+WHY: Two buckets needed.
+     Bucket 1 (apu-model-artifacts): stores your model, scaler, config.
+     Bucket 2 (apu-incoming-data): stores every CSV users upload.
+
+  In PowerShell:
+
+  COMMAND 1 — Create model artifacts bucket:
+    gsutil mb -p YOUR_PROJECT_ID -l us-central1 gs://apu-model-artifacts-YOUR_PROJECT_ID/
+
+  COMMAND 2 — Create incoming data bucket:
+    gsutil mb -p YOUR_PROJECT_ID -l us-central1 gs://apu-incoming-data-YOUR_PROJECT_ID/
+
+  NOTE: GCS bucket names must be globally unique across ALL of GCP.
+  Adding your project ID at the end ensures uniqueness.
+  Example: gs://apu-model-artifacts-apu-predictive-maintenance-123456/
+
+  Verify buckets were created:
+    gsutil ls
+  You should see both bucket names listed.
+
+STEP 3.2 — UPLOAD MODEL FILES TO GCS
+----------------------------------------------------------------------
+
+WHY: The Docker container does NOT contain the model files.
+     The Flask app downloads them from GCS when it starts up.
+     If these files are not in GCS, the app crashes on startup.
+
+  Make sure you are in your project root with venv activated:
+    cd E:\APU_Predictive_Maintenance
+    .APU_venv\Scripts\activate
+
+  First, run training to make sure baseline_stats.json exists
+  (Antigravity added baseline stats generation to training pipeline):
+    python entrypoint/training.py
+
+  Now upload the 3 required files:
+
+  COMMAND 1:
+    gsutil cp Artifacts/Model/model_LGBM.pkl gs://apu-model-artifacts-YOUR_PROJECT_ID/model_LGBM.pkl
+
+  COMMAND 2:
+    gsutil cp Artifacts/Scaler/scaler.pkl gs://apu-model-artifacts-YOUR_PROJECT_ID/scaler.pkl
+
+  COMMAND 3:
+    gsutil cp Artifacts/baseline_stats.json gs://apu-model-artifacts-YOUR_PROJECT_ID/baseline_stats.json
+
+  Verify all 3 files are there:
+    gsutil ls gs://apu-model-artifacts-YOUR_PROJECT_ID/
+  You should see:
+    gs://apu-model-artifacts-YOUR_PROJECT_ID/baseline_stats.json
+    gs://apu-model-artifacts-YOUR_PROJECT_ID/model_LGBM.pkl
+    gs://apu-model-artifacts-YOUR_PROJECT_ID/scaler.pkl
+
+STEP 3.3 — CREATE CLOUD SQL DATABASE
+----------------------------------------------------------------------
+
+WHY: Every prediction your app makes gets stored here.
+     This is needed for drift detection in Phase 5.
+
+  COMMAND 1 — Create the database instance:
+    (This takes 5-7 minutes. Be patient.)
+
+    gcloud sql instances create apu-db \
+      --database-version=POSTGRES_14 \
+      --tier=db-f1-micro \
+      --region=us-central1 \
+      --storage-size=10GB \
+      --storage-type=SSD \
+      --no-backup
+
+    db-f1-micro is the cheapest tier. It costs about $7/month.
+    For a project this size it is perfectly fine.
+
+  COMMAND 2 — Create the database:
+    gcloud sql databases create apu_predictions --instance=apu-db
+
+  COMMAND 3 — Create a database user:
+    gcloud sql users create apu_user \
+      --instance=apu-db \
+      --password=APU_StrongPassword_2026
+
+    WRITE DOWN THIS PASSWORD. You need it in the next step.
+    Use a strong password — do not use the example above.
+
+  COMMAND 4 — Get the database connection name:
+    gcloud sql instances describe apu-db --format="value(connectionName)"
+    This prints something like:
+    apu-predictive-maintenance-123456:us-central1:apu-db
+    WRITE THIS DOWN. It is your DB_CONNECTION_NAME.
+
+  COMMAND 5 — Get the public IP of the database:
+    gcloud sql instances describe apu-db --format="value(ipAddresses[0].ipAddress)"
+    WRITE DOWN THIS IP ADDRESS. It is your DB_HOST.
+
+STEP 3.4 — RUN THE DATABASE SCHEMA
+----------------------------------------------------------------------
+
+WHY: The tables don't exist yet. We need to create them.
+     Antigravity will have created infra/schema.sql — now you run it.
+
+  OPTION A — Using gcloud SQL proxy (recommended):
+    Download Cloud SQL Proxy:
+    Go to: https://cloud.google.com/sql/docs/postgres/sql-proxy
+    Download cloud-sql-proxy.exe for Windows.
+    Place it in your project root.
+
+    In PowerShell Terminal 1 — start the proxy:
+      .\cloud-sql-proxy.exe YOUR_CONNECTION_NAME
+      (e.g. .\cloud-sql-proxy.exe apu-predictive-maintenance-123456:us-central1:apu-db)
+      Leave this running.
+
+    In PowerShell Terminal 2 — connect and run schema:
+      Install psql if not already:
+        Download from https://www.postgresql.org/download/windows/
+      Run:
+        psql -h 127.0.0.1 -U apu_user -d apu_predictions -f infra/schema.sql
+      Enter your password when asked.
+
+  You should see:
+    CREATE TABLE
+    CREATE TABLE
+    CREATE INDEX
+    CREATE INDEX
+    CREATE INDEX
+
+STEP 3.5 — STORE SECRETS IN SECRET MANAGER
+----------------------------------------------------------------------
+
+WHY: The app needs the database password but we must NEVER put
+     passwords in environment variables or code files.
+     Secret Manager stores them securely.
+
+  COMMAND 1 — Store database password:
+    echo -n "YOUR_DB_PASSWORD" | gcloud secrets create db-password --data-file=-
+
+  COMMAND 2 — Store database host IP:
+    echo -n "YOUR_DB_HOST_IP" | gcloud secrets create db-host --data-file=-
+
+  COMMAND 3 — Store database connection name:
+    echo -n "YOUR_DB_CONNECTION_NAME" | gcloud secrets create db-connection-name --data-file=-
+
+  COMMAND 4 — Give Cloud Run permission to read secrets:
+    gcloud secrets add-iam-policy-binding db-password \
+      --member="serviceAccount:apu-deploy-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+      --role="roles/secretmanager.secretAccessor"
+
+  (Repeat COMMAND 4 for db-host and db-connection-name secrets too.)
+
+  Verify secrets exist:
+    gcloud secrets list
+  You should see db-password, db-host, db-connection-name listed.
+
+STEP 3.6 — UPDATE CLOUD RUN WITH ENVIRONMENT VARIABLES
+----------------------------------------------------------------------
+
+WHY: The running app needs to know which GCS buckets and project to use.
+
+  In PowerShell:
+    gcloud run services update apu-app \
+      --region=us-central1 \
+      --set-env-vars \
+        GCS_MODEL_BUCKET=apu-model-artifacts-YOUR_PROJECT_ID,\
+        GCS_DATA_BUCKET=apu-incoming-data-YOUR_PROJECT_ID,\
+        GCP_PROJECT_ID=YOUR_PROJECT_ID,\
+        DB_NAME=apu_predictions,\
+        DB_USER=apu_user
+
+STEP 3.7 — TEST THE FULL APP END TO END
+----------------------------------------------------------------------
+
+  1. Open your Cloud Run URL in browser:
+     https://apu-app-xxxxxxxxxx-uc.a.run.app
+
+  2. Upload a test CSV file (use testing_datasets/exp/data_testing_1.csv)
+
+  3. Click EXECUTE INFERENCE SEQUENCE
+
+  4. You should see:
+     - Processing animation runs
+     - Dashboard appears with metrics
+     - Charts show RUL predictions
+     - Table shows CRITICAL/WARNING/NOMINAL rows
+
+  If it works: Phase 3 is complete.
+
+  If it fails — check Cloud Run logs:
+    Go to GCP Console → Cloud Run → apu-app → Logs tab
+    Read the error messages.
+    Copy errors and give to Antigravity.
+
+  Once working, push any code changes:
+    git add .
+    git commit -m "Phase 3 complete - GCP deployment working"
+    git push origin main
+
+================================================================================
+  PHASE 4 — WHAT I DO FOR RETRAINING SETUP
+================================================================================
+
+------------------------------------------------------------------------
+WHAT ANTIGRAVITY IS DOING:
+  Writing entrypoint/retrain.py (full retraining pipeline),
+  Dockerfile.retrain, infra/setup_scheduler.sh
+------------------------------------------------------------------------
+
+STEP 4.1 — BUILD AND PUSH THE RETRAIN DOCKER IMAGE
+----------------------------------------------------------------------
+
+WHY: The retraining job runs in its own separate container.
+     We need to build and push this container to Artifact Registry.
+
+  After Antigravity writes Dockerfile.retrain:
+
+  COMMAND 1 — Build retrain image:
+    docker build -f Dockerfile.retrain -t us-central1-docker.pkg.dev/YOUR_PROJECT_ID/apu-repo/apu-retrain:latest .
+
+  COMMAND 2 — Configure Docker for GCP:
+    gcloud auth configure-docker us-central1-docker.pkg.dev
+
+  COMMAND 3 — Push retrain image:
+    docker push us-central1-docker.pkg.dev/YOUR_PROJECT_ID/apu-repo/apu-retrain:latest
+
+  Verify it is in Artifact Registry:
+    Go to GCP Console → Artifact Registry → apu-repo
+    You should see two images: apu-app and apu-retrain
+
+STEP 4.2 — CREATE THE CLOUD RUN JOB
+----------------------------------------------------------------------
+
+WHY: A Cloud Run Job is a one-off container that runs and exits.
+     It is different from the Cloud Run Service (which runs continuously).
+     The retraining job runs once a week, does its work, then stops.
+
+  Antigravity writes infra/setup_scheduler.sh with the exact commands.
+  YOU run those commands in PowerShell:
+
+  COMMAND 1 — Create Cloud Run Job:
+    gcloud run jobs create apu-retrain-job \
+      --image us-central1-docker.pkg.dev/YOUR_PROJECT_ID/apu-repo/apu-retrain:latest \
+      --region us-central1 \
+      --service-account apu-deploy-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com \
+      --set-env-vars GCS_MODEL_BUCKET=apu-model-artifacts-YOUR_PROJECT_ID,GCS_DATA_BUCKET=apu-incoming-data-YOUR_PROJECT_ID,GCP_PROJECT_ID=YOUR_PROJECT_ID
+
+  COMMAND 2 — Test run the job manually ONCE to verify it works:
+    gcloud run jobs execute apu-retrain-job --region us-central1 --wait
+
+    This will run retrain.py right now.
+    Watch the output. At the end you should see something like:
+    "No new data found. Skipping retraining."
+    That is CORRECT — there is no new data yet. The job ran successfully.
+
+    If it says ERROR — check the logs:
+    gcloud run jobs executions list --job=apu-retrain-job --region=us-central1
+    Copy any errors to Antigravity.
+
+STEP 4.3 — CREATE CLOUD SCHEDULER
+----------------------------------------------------------------------
+
+WHY: This is the cron job that triggers retraining every Sunday midnight.
+
+  COMMAND:
+    gcloud scheduler jobs create http apu-weekly-retrain \
+      --location us-central1 \
+      --schedule "0 0 * * 0" \
+      --uri "https://us-central1-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/YOUR_PROJECT_ID/jobs/apu-retrain-job:run" \
+      --message-body "{}" \
+      --oauth-service-account-email apu-deploy-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com \
+      --time-zone "UTC"
+
+  "0 0 * * 0" means: at midnight (0:00) every Sunday.
+
+  Verify it was created:
+    gcloud scheduler jobs list --location us-central1
+  You should see "apu-weekly-retrain" listed with status ENABLED.
+
+STEP 4.4 — SET UP DVC REMOTE ON GCS
+----------------------------------------------------------------------
+
+WHY: Currently DVC stores datasets locally.
+     We move it to GCS so dataset versions are backed up in cloud.
+
+  In PowerShell (with venv activated):
+
+  COMMAND 1 — Add GCS as DVC remote:
+    dvc remote add -d gcs_remote gs://apu-incoming-data-YOUR_PROJECT_ID/dvc-store
+
+  COMMAND 2 — Set credentials:
+    dvc remote modify gcs_remote credentialpath C:\path\to\apu-sa-key.json
+    (Use the path where you saved your service account key file)
+
+  COMMAND 3 — Push existing data to GCS DVC remote:
+    dvc push
+
+  COMMAND 4 — Commit the DVC config change:
+    git add .dvc/config
+    git commit -m "Phase 4 - DVC remote moved to GCS"
+    git push origin main
+
+================================================================================
+  PHASE 5 — WHAT I DO FOR MONITORING SETUP
+================================================================================
+
+------------------------------------------------------------------------
+WHAT ANTIGRAVITY IS DOING:
+  Writing drift detection code in inference_pipeline.py,
+  prediction_drift.py, custom metric logging, Evidently AI integration
+------------------------------------------------------------------------
+
+STEP 5.1 — SET UP CLOUD MONITORING DASHBOARD
+----------------------------------------------------------------------
+
+WHY: This gives you a live visual dashboard showing your app's health.
+
+  1. Go to GCP Console → Search for "Monitoring" → Click Cloud Monitoring.
+  2. In left sidebar click "Dashboards" → "Create Dashboard".
+  3. Name it: APU Predictive Maintenance Dashboard
+  4. Click "Add Widget" → "Metric".
+
+  ADD CHART 1 — Request count:
+    Click "Add Widget" → "Metric"
+    Search for: run.googleapis.com/request_count
+    Filter by service: apu-app
+    Click "Apply"
+
+  ADD CHART 2 — Request latency:
+    Click "Add Widget" → "Metric"
+    Search for: run.googleapis.com/request_latencies
+    Filter by service: apu-app
+    Click "Apply"
+
+  ADD CHART 3 — R2 Score custom metric (shows after first inference):
+    Click "Add Widget" → "Metric"
+    Search for: custom.googleapis.com/apu/r2_score
+    Click "Apply"
+
+  ADD CHART 4 — Drift detected:
+    Click "Add Widget" → "Metric"
+    Search for: custom.googleapis.com/apu/drift_detected
+    Click "Apply"
+
+  Click "Save Dashboard".
+
+STEP 5.2 — SET UP ALERTING POLICIES
+----------------------------------------------------------------------
+
+WHY: You want an email when something goes wrong.
+     Instead of checking dashboards every day, GCP emails you.
+
+  1. In Cloud Monitoring left sidebar → "Alerting" → "Create Policy".
+
+  ALERT 1 — R2 score drops below 0.90:
+    Click "Select a metric"
+    Search: custom.googleapis.com/apu/r2_score
+    Click "Configure alert trigger"
+    Condition: Below threshold
+    Threshold value: 0.90
+    Duration: 0 minutes (alert immediately)
+    Click "Next"
+    Notification channel: Add your email address
+    Alert name: APU R2 Score Degradation
+    Click "Create Policy"
+
+  ALERT 2 — Drift detected:
+    Create another policy.
+    Metric: custom.googleapis.com/apu/drift_detected
+    Condition: Above threshold
+    Threshold: 0.5
+    Alert name: APU Feature Drift Detected
+    Add your email.
+    Click "Create Policy"
+
+  ALERT 3 — App error rate:
+    Metric: run.googleapis.com/request_count
+    Filter by: response_code_class = "5xx"
+    Condition: Above threshold
+    Threshold: 5 (more than 5 errors per minute)
+    Alert name: APU App Errors
+    Add your email.
+    Click "Create Policy"
+
+  Now whenever these conditions happen, GCP sends you an email.
+
+STEP 5.3 — FINAL END-TO-END TEST OF EVERYTHING
+----------------------------------------------------------------------
+
+  Do this final test after Phase 5 code is deployed:
+
+  TEST 1 — Upload a CSV and run inference:
+    Go to your app URL.
+    Upload testing_datasets/exp/data_testing_1.csv
+    Click EXECUTE.
+    Check the dashboard shows metrics and charts.
+
+  TEST 2 — Check predictions were saved to Cloud SQL:
+    Start Cloud SQL Proxy (as in Step 3.4).
+    Connect to database:
+      psql -h 127.0.0.1 -U apu_user -d apu_predictions
+    Run:
+      SELECT COUNT(*) FROM predictions;
+    Should show rows equal to the number of cycles in your test CSV.
+    Type \q to exit.
+
+  TEST 3 — Check CSV was saved to GCS:
+    gsutil ls gs://apu-incoming-data-YOUR_PROJECT_ID/uploads/
+    You should see the file you just uploaded.
+
+  TEST 4 — Check drift report was generated:
+    gsutil ls gs://apu-model-artifacts-YOUR_PROJECT_ID/drift_reports/
+    You should see a report_TIMESTAMP.html file.
+    Download it:
+      gsutil cp gs://apu-model-artifacts-YOUR_PROJECT_ID/drift_reports/report_TIMESTAMP.html .
+    Open in browser to view the drift analysis.
+
+  TEST 5 — Check custom metrics in Cloud Monitoring:
+    Go to GCP Console → Monitoring → Dashboards → APU Dashboard.
+    After a minute, the R2 score chart should show a data point.
+
+  If all 5 tests pass — YOUR PROJECT IS FULLY DEPLOYED AND LIVE.
+
+================================================================================
+  QUICK REFERENCE — COMMANDS I WILL USE OFTEN
+================================================================================
+
+DAILY / WHEN NEEDED:
+
+  Activate virtual env:
+    cd E:\APU_Predictive_Maintenance
+    .APU_venv\Scripts\activate
+
+  Push code changes (triggers CI/CD automatically):
+    git add .
+    git commit -m "your message"
+    git push origin main
+
+  View Cloud Run logs (when app has errors):
+    gcloud run services logs read apu-app --region=us-central1 --limit=50
+
+  View retrain job logs:
+    gcloud run jobs executions list --job=apu-retrain-job --region=us-central1
+
+  Manually trigger retraining (don't wait for Sunday):
+    gcloud run jobs execute apu-retrain-job --region us-central1
+
+  Upload a new model to GCS (after local retraining):
+    gsutil cp Artifacts/Model/model_LGBM.pkl gs://apu-model-artifacts-YOUR_PROJECT_ID/model_LGBM.pkl
+
+  Check what is in GCS:
+    gsutil ls gs://apu-model-artifacts-YOUR_PROJECT_ID/
+    gsutil ls gs://apu-incoming-data-YOUR_PROJECT_ID/uploads/
+
+  Run all tests locally:
+    pytest tests/ -v
+
+  Run inference locally:
+    python -m entrypoint.inference --input testing_datasets/exp/data_testing_1.csv
+
+  Run the app locally:
+    $env:PYTHONIOENCODING='utf-8'; .APU_venv\Scripts\python frontend/app.py
+
+================================================================================
+  THINGS I MUST NEVER DO — IMPORTANT RULES
+================================================================================
+
+  1. NEVER commit apu-sa-key.json to GitHub.
+     If I accidentally do this — go to GCP Console → IAM → Service Accounts
+     → Delete the key → Create a new one → Update GitHub Secret.
+
+  2. NEVER put database passwords in code or environment variable files.
+     Always use Secret Manager.
+
+  3. NEVER manually edit model_LGBM.pkl or scaler.pkl directly.
+     Always retrain the pipeline and upload new files.
+
+  4. NEVER change the number of feature engineering steps without
+     retraining the model. The model expects exactly 69 features.
+
+  5. NEVER skip pytest tests before pushing.
+     Run: pytest tests/ -v
+     All must pass before: git push.
+
+  6. NEVER delete the apu-model-artifacts GCS bucket without
+     first backing up model_LGBM.pkl and scaler.pkl locally.
+
+================================================================================
+  IF SOMETHING GOES WRONG — HOW TO DEBUG
+================================================================================
+
+  APP NOT LOADING:
+    Check Cloud Run logs:
+    gcloud run services logs read apu-app --region=us-central1 --limit=100
+    Copy the red error lines → give to Antigravity.
+
+  CI/CD PIPELINE FAILS:
+    Go to GitHub → Actions tab → Click the failed run → Click failed job.
+    Read the red error text → give to Antigravity.
+
+  DOCKER BUILD FAILS LOCALLY:
+    docker build -t apu-app-test . 2>&1 | head -50
+    Copy the error → give to Antigravity.
+
+  DATABASE CONNECTION FAILS:
+    Verify Cloud SQL is running:
+    gcloud sql instances list
+    Status should say RUNNABLE, not STOPPED.
+    If STOPPED: gcloud sql instances patch apu-db --activation-policy=ALWAYS
+
+  MODEL NOT LOADING (app crashes at startup):
+    Verify the files are in GCS:
+    gsutil ls gs://apu-model-artifacts-YOUR_PROJECT_ID/
+    If files are missing, re-upload them (Step 3.2).
+
+  TESTS FAILING:
+    Read the exact error message.
+    Make sure you are in the right directory with venv activated.
+    Give the full error output to Antigravity.
+
+================================================================================
+  SUMMARY TIMELINE — WHAT I DO EACH DAY
+================================================================================
+
+  DAY 1 (Setup):
+    Complete Steps 0.1 through 0.5 (install gcloud, Docker, GitHub, GCP)
+    Complete Steps 1.1 through 1.6 (GCP project, APIs, service account)
+    Feed project_feed_claude.txt to Antigravity
+    Ask Antigravity to start Phase 1 code
+
+  DAY 2 (Phase 1 + 2):
+    Test Antigravity's code locally (pytest, docker build, docker run)
+    Fix any issues with Antigravity's help
+    Complete Steps 1.7, 2.1 through 2.4 (CI/CD setup and first deploy)
+
+  DAY 3 (Phase 3 — GCP Infrastructure):
+    Complete Steps 3.1 through 3.7 (GCS buckets, Cloud SQL, secrets)
+    Test full app end to end on Cloud Run URL
+
+  DAY 4 (Phase 4 — Retraining):
+    Complete Steps 4.1 through 4.4 (retrain image, Cloud Run Job, Scheduler)
+    Manually trigger one test retrain run to verify it works
+
+  DAY 5 (Phase 5 — Monitoring):
+    Complete Steps 5.1 through 5.3 (dashboard, alerts, final testing)
+    PROJECT IS FULLY LIVE AND PRODUCTION-GRADE
+
+================================================================================
+  END OF MY WORKFLOW GUIDE
+  Keep this file open while working.
+  Do every step in order. Never skip.
+  When stuck — give error messages to Antigravity.
+================================================================================
+
+
+
+
+Project ID: apu-predictive-maintenance
+Project Number: 815778573006

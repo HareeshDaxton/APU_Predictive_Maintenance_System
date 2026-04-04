@@ -1,0 +1,33 @@
+# ──────────────────────────────────────────────────────────────
+#  APU Predictive Maintenance — Retraining Job Dockerfile
+#  Separate container from the main app container.
+#  Triggered weekly by Cloud Scheduler as a Cloud Run Job.
+# ──────────────────────────────────────────────────────────────
+FROM python:3.9-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONIOENCODING=utf-8
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgomp1 \
+    libpq-dev \
+    gcc \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY config/      ./config/
+COPY src/         ./src/
+COPY Utils/       ./Utils/
+COPY NoteBook/    ./NoteBook/
+COPY entrypoint/retrain.py ./entrypoint/retrain.py
+
+# Notebooks fault injection script needs to be importable
+ENV PYTHONPATH=/app
+
+CMD ["python", "entrypoint/retrain.py"]
