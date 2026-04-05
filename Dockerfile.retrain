@@ -3,7 +3,7 @@
 #  Separate container from the main app container.
 #  Triggered weekly by Cloud Scheduler as a Cloud Run Job.
 # ──────────────────────────────────────────────────────────────
-FROM python:3.9-slim
+FROM python:3.11-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
