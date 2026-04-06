@@ -3,7 +3,7 @@
 #  Port: 8080 (required by GCP Cloud Run)
 #  Model / scaler NOT baked in — downloaded from GCS at startup
 # ──────────────────────────────────────────────────────────────
-FROM python:3.9-slim
+FROM python:3.11-slim
 
 # Prevent interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
