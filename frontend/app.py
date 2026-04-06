@@ -41,12 +41,13 @@ app = Flask(__name__)
 CORS(app)
 
 # ── Environment detection ─────────────────────────────────────
-GCS_MODEL_BUCKET = os.environ.get('GCS_MODEL_BUCKET', '')
+GCP_MODE         = os.environ.get('GCP_MODE', 'False').lower() == 'true'
+GCS_MODEL_BUCKET = os.environ.get('GCS_MODEL_BUCKET', 'apu-model-artifacts-apu-predictive-maintenance')
 GCS_DATA_BUCKET  = os.environ.get('GCS_DATA_BUCKET', '')
 GCP_PROJECT_ID   = os.environ.get('GCP_PROJECT_ID', '')
 DB_NAME          = os.environ.get('DB_NAME', 'apu_predictions')
 DB_USER          = os.environ.get('DB_USER', 'apu_user')
-IS_GCP           = bool(GCS_MODEL_BUCKET)
+IS_GCP           = GCP_MODE or ('GCS_MODEL_BUCKET' in os.environ)
 
 # ── Artifact paths ────────────────────────────────────────────
 if IS_GCP:
@@ -178,6 +179,10 @@ def _get_pipeline() -> InferencePipeline:
         _pipeline = InferencePipeline(
             config_path=os.path.join(ROOT, 'config', 'config.yaml')
         )
+        if IS_GCP:
+            _pipeline.model_path = MODEL_PATH
+            _pipeline.scaler_path = SCALER_PATH
+            _pipeline.baseline_stats_path = BASELINE_PATH
     return _pipeline
 
 
