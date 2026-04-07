@@ -117,7 +117,7 @@ jobs:
             --memory 1Gi \
             --cpu 1 \
             --timeout 300 \
-            --set-env-vars "GCS_MODEL_BUCKET=apu-model-artifacts-${{ env.PROJECT_ID }},GCS_DATA_BUCKET=apu-incoming-data-${{ env.PROJECT_ID }},GCP_PROJECT_ID=${{ env.PROJECT_ID }},DB_NAME=apu_predictions,DB_USER=apu_user"
+            --set-env-vars "GCP_MODE=True,GCS_MODEL_BUCKET=apu-model-artifacts-${{ env.PROJECT_ID }},GCS_DATA_BUCKET=apu-incoming-data-${{ env.PROJECT_ID }},GCP_PROJECT_ID=${{ env.PROJECT_ID }},DB_NAME=apu_predictions,DB_USER=apu_user"
 
       - name: Get deployed URL
         run: |
