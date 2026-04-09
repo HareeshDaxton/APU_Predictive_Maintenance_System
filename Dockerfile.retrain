@@ -24,7 +24,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY config/      ./config/
 COPY src/         ./src/
 COPY Utils/       ./Utils/
-COPY NoteBook/    ./NoteBook/
+
 COPY entrypoint/retrain.py ./entrypoint/retrain.py
 
 # Notebooks fault injection script needs to be importable

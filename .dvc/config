@@ -1,5 +1,8 @@
 [core]
-    remote = localstorage
+    remote = gcs_remote
     autostage = true
 ['remote "localstorage"']
     url = ../dvc_storage
+['remote "gcs_remote"']
+    url = gs://apu-incoming-data-apu-predictive-maintenance/dvc-store
+    credentialpath = C:\Users\Hareesh\Downloads\apu-predictive-maintenance-463f7f10cf43.json
