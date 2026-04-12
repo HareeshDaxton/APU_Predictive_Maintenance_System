@@ -62,6 +62,9 @@ class InferencePipeline:
             'Artifacts/baseline_stats.json'
         )
 
+        # Populated after every run_inference() call so app.py can read it
+        self.last_drift_report: dict = {}
+
     # ------------------------------------------------------------------ #
     #  Internal helpers                                                    #
     # ------------------------------------------------------------------ #
@@ -387,6 +390,7 @@ class InferencePipeline:
 
             # 13. Feature drift detection
             drift_report = self.check_feature_drift(df, input_csv_path)
+            self.last_drift_report = drift_report   # expose to app.py
             if drift_report.get('drift_detected'):
                 logging.warning(
                     f"DRIFT DETECTED in sensors: {drift_report.get('drifted_sensors')}"

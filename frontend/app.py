@@ -148,26 +148,57 @@ def _save_predictions_to_db(predictions_df: pd.DataFrame,
 
 # ── Cloud Monitoring helpers ───────────────────────────────────
 def _log_custom_metric(metric_name: str, value: float) -> None:
-    """Log a custom metric to GCP Cloud Monitoring."""
+    """
+    Log a custom metric to GCP Cloud Monitoring.
+
+    Uses resource type 'global' which requires project_id in resource.labels.
+    Metric will appear under: custom.googleapis.com/apu/{metric_name}
+    """
     if not IS_GCP or not GCP_PROJECT_ID:
         return
     try:
         import time
         from google.cloud import monitoring_v3
-        client = monitoring_v3.MetricServiceClient()
+
+        client       = monitoring_v3.MetricServiceClient()
         project_name = f'projects/{GCP_PROJECT_ID}'
-        series = monitoring_v3.TimeSeries()
-        series.metric.type = f'custom.googleapis.com/apu/{metric_name}'
-        series.resource.type = 'global'
-        point = monitoring_v3.Point()
-        point.value.double_value = value
-        point.interval.end_time.seconds = int(time.time())
-        series.points = [point]
+
+        now_seconds = int(time.time())
+
+        # ── Build the time series object ───────────────────────
+        series = monitoring_v3.TimeSeries(
+            {
+                'metric': {
+                    'type': f'custom.googleapis.com/apu/{metric_name}',
+                },
+                # BUG FIX: 'global' resource type REQUIRES project_id label.
+                # Without this, the Cloud Monitoring API call fails silently.
+                'resource': {
+                    'type': 'global',
+                    'labels': {'project_id': GCP_PROJECT_ID},
+                },
+                'points': [
+                    {
+                        # BUG FIX: construct Interval + TypedValue via dict args,
+                        # not post-construction attribute mutation (unreliable
+                        # with protobuf-backed monitoring_v3 objects).
+                        'interval': {'end_time': {'seconds': now_seconds}},
+                        'value':    {'double_value': float(value)},
+                    }
+                ],
+            }
+        )
+
         client.create_time_series(
             request={'name': project_name, 'time_series': [series]}
         )
+        logging.info(
+            f'Cloud Monitoring: sent {metric_name}={value} '
+            f'to custom.googleapis.com/apu/{metric_name}'
+        )
     except Exception as e:
-        logging.warning(f'Cloud Monitoring log failed (non-fatal): {e}')
+        # Log at ERROR level so it appears in Cloud Run logs for debugging
+        logging.error(f'Cloud Monitoring metric [{metric_name}] failed: {e}')
 
 
 # ── Lazy pipeline singleton ───────────────────────────────────
@@ -268,12 +299,26 @@ def predict():
         if IS_GCP:
             _save_predictions_to_db(results_df, model_version='v1', filename=filename)
 
+        # ── Read drift report from the pipeline (correct way) ──
+        # BUG FIX: 'getattr(results_df, "_drift_report", None)' always returned
+        # None because DataFrames cannot hold custom attributes.
+        # The InferencePipeline stores the report in self.last_drift_report.
+        drift_report = getattr(pl, 'last_drift_report', {}) or {}
+        drift_detected_value = 1.0 if drift_report.get('drift_detected') else 0.0
+
         # ── Log custom metrics to Cloud Monitoring ─────────────
+        # r2_score: continuous float (e.g. 0.9941)
         _log_custom_metric('r2_score', r2)
+        # drift_detected: binary flag — 0.0 = no drift, 1.0 = drift detected
+        _log_custom_metric('drift_detected', drift_detected_value)
+        # bonus metric: row count per inference call
         _log_custom_metric('inference_row_count', float(len(results_df)))
 
-        # ── Get drift report if available ─────────────────────
-        drift_report = getattr(results_df, '_drift_report', None)
+        logging.info(
+            f'Metrics sent — r2_score={r2}, '
+            f'drift_detected={drift_detected_value}, '
+            f'rows={len(results_df)}'
+        )
 
         return jsonify({
             'success':          True,
@@ -282,6 +327,7 @@ def predict():
             'overall_metrics':  {'MSE': mse, 'MAE': mae, 'RMSE': rmse, 'R2': r2},
             'per_engine_metrics': per_engine,
             'predictions':      predictions,
+            'drift_report':     drift_report,
         })
 
     except Exception as e:
